@@ -1,0 +1,18 @@
+# Secretos y credenciales
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+
+# Postman con entorno o tokens
+*postman_environment*.json
+*.postman_globals.json
+
+# Logs y basura de sistema/editor
+*.log
+.DS_Store
+.idea/
+.vscode/
