@@ -10,6 +10,8 @@ LABELS=(
   "atlas:1d76db" "cronos:5319e7" "hermes:fbca04"
   "docs:c5def5" "infra:ededed" "seguridad:b60205"
   "tests:bfd4f2" "bloqueante:000000"
+  "integracion:006b75" "contrato:d4c5f9" "robustez:e99695"
+  "evidencia:fef2c0" "consulta-profe:ff9f1c"
 )
 
 for l in "${LABELS[@]}"; do
