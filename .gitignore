@@ -1,0 +1,15 @@
+# Secretos
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.jks
+
+# Exportaciones de clientes HTTP con entorno
+*postman_environment*.json
+*.postman_globals.json
+
+# IDE
+.idea/
+.vscode/
