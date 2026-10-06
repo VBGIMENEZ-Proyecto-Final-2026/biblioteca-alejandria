@@ -11,6 +11,26 @@ Carpeta que **indexa** la documentación y las skills del proyecto integrador de
 | `cronos-turnos` | Backend de turnos y reservas | `<url-del-repo>` |
 | `biblioteca-alejandria-` | Este repo: documentación, plantillas y skills (cuarto repo, aprobado por el profe) | `<url-del-repo>` |
 
+## Arquitectura general
+
+Vista de conjunto: la cátedra publica el catálogo y los turnos por REST, Redis y Kafka; `atlas-catalogo` mantiene la copia local del catálogo, `cronos-turnos` maneja turnos y reservas, y `hermes-app` consume a los dos.
+
+```text
+                    ┌────────── Cátedra ──────────┐
+                    │  REST     Redis     Kafka   │
+                    └──┬──┬──────┬──┬───────┬──┬──┘
+        catálogo ──────┘  │      │  │       │  └── turnos
+                          │      │  │       │
+              ┌───────────┘      │  └───────┴────────────┐
+              ▼                  ▼                       ▼
+        atlas-catalogo  ◄──── agenda ────  cronos-turnos
+              ▲                                          ▲
+              │ búsqueda                                 │ auth, disponibilidad, reservas
+              └──────────────── hermes-app ──────────────┘
+```
+
+Cada repo de código tiene en su README un diagrama más cercano a su responsabilidad.
+
 ## Mapa de carpetas
 
 | Carpeta | Qué va |
