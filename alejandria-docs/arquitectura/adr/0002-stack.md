@@ -1,6 +1,6 @@
 # ADR 0002 · Stack tecnológico de atlas-catalogo
 
-**Estado:** borrador · **Componente:** atlas-catalogo · **Contexto:** Isla 1, issue #5
+**Estado:** aceptado, con D12 pendiente de confirmar con el docente · **Componente:** atlas-catalogo · **Contexto:** Isla 1, issue #5
 
 ## Contexto
 
@@ -24,15 +24,15 @@ Restricciones del enunciado que condicionan el stack:
 | D2 | Spring Boot 4.1 | Decidido |
 | D3 | Sin JHipster en este repo | Decidido |
 | D4 | Build: Gradle (Kotlin DSL) | Decidido |
-| D5 | PostgreSQL | Propuesto |
-| D6 | Flyway para migraciones | Propuesto |
-| D7 | Spring Data JPA | Propuesto |
-| D8 | `spring-kafka` | Propuesto |
-| D9 | Redis con Lettuce (Spring Data Redis) | Propuesto |
-| D10 | Cliente REST: `RestClient` + interfaz declarativa | Propuesto |
-| D11 | Reintentos: resiliencia nativa de Framework 7 | Propuesto |
+| D5 | PostgreSQL | Decidido |
+| D6 | Flyway para migraciones | Decidido |
+| D7 | Spring Data JPA | Decidido |
+| D8 | `spring-kafka` | Decidido |
+| D9 | Redis con Lettuce (Spring Data Redis) | Decidido |
+| D10 | Cliente REST: `RestClient` + interfaz declarativa | Decidido |
+| D11 | Reintentos: resiliencia nativa de Framework 7 | Decidido |
 | D12 | JWT RS256 con clave pública | Propuesto (se confirma tras la reunión con el docente) |
-| D13 | Testing: JUnit 5 + Testcontainers + ArchUnit | Propuesto |
+| D13 | Testing: JUnit 5 + Testcontainers + ArchUnit | Decidido |
 
 ## Decisiones, alternativas, pros y contras
 
@@ -60,32 +60,32 @@ Restricciones del enunciado que condicionan el stack:
 - **Decisión:** Gradle (Kotlin DSL), por uniformidad con `hermes-app`: una sola herramienta de build en los tres repos. El wrapper se fija en 9.1.0 o superior por Java 25.
 - **Costo aceptado:** curva del DSL y errores a veces crípticos; menos tutoriales de Spring que con Maven.
 
-### D5 — PostgreSQL (alternativas: MySQL/MariaDB) · Propuesto
+### D5 — PostgreSQL (alternativas: MySQL/MariaDB) · Decidido
 - **Pros:** ya se maneja; `SELECT ... FOR UPDATE` y bloqueos para exclusión mutua del sync; índices parciales; imagen oficial estable; Testcontainers lo soporta muy bien.
 - **Contras:** consume más memoria que un motor liviano al correr dos instancias (una por repo) en local; requiere un contenedor de servidor (como cualquier motor servidor); el mantenimiento (VACUUM, bloat) no importa a esta escala pero existe.
 - **Nota:** la consigna permite el mismo producto en ambos servicios si hay esquemas/usuarios separados. Se plantea una instancia de Postgres propia por repo.
 
-### D6 — Flyway (alternativa: Liquibase) · Propuesto
+### D6 — Flyway (alternativa: Liquibase) · Decidido
 - **Pros:** SQL plano, fácil de leer y defender; menos conceptos.
 - **Contras:** si `cronos-turnos` usa JHipster, allí se usaría Liquibase (dos herramientas de migración distintas). Si resulta molesto, se reevalúa.
 
-### D7 — Spring Data JPA (alternativas: JdbcClient/JdbcTemplate, jOOQ) · Propuesto
+### D7 — Spring Data JPA (alternativas: JdbcClient/JdbcTemplate, jOOQ) · Decidido
 - **Pros:** rapidez de desarrollo; Specifications para los filtros combinables; el catálogo es chico.
 - **Contras:** overhead y riesgo de N+1 (se controla con consultas explícitas); el reemplazo masivo del snapshot requiere batch.
 
-### D8 — spring-kafka (alternativa: Spring Cloud Stream) · Propuesto
+### D8 — spring-kafka (alternativa: Spring Cloud Stream) · Decidido
 - **Pros:** control directo del ack manual, el manejo de errores y el deserializador (necesario para no bloquear el consumer ante un mensaje corrupto).
 - **Contras:** más configuración explícita.
 
-### D9 — Redis con Lettuce vía Spring Data Redis (alternativas: Jedis, Redisson) · Propuesto
+### D9 — Redis con Lettuce vía Spring Data Redis (alternativas: Jedis, Redisson) · Decidido
 - **Pros:** es el cliente por defecto; soporta ACL con usuario y contraseña; alcanza para lecturas de Hashes y Strings.
 - **Contras:** arrastra Netty como dependencia transitiva; los serializadores de `RedisTemplate` hay que configurarlos explícitamente (se usa `StringRedisTemplate`); los permisos ACL solo se validan de verdad contra un Redis real (Testcontainers). Redisson sería excesivo (no se necesitan locks distribuidos en Redis).
 
-### D10 — Cliente REST: `RestClient` + interfaz declarativa (alternativas: WebClient, OpenFeign) · Propuesto
+### D10 — Cliente REST: `RestClient` + interfaz declarativa (alternativas: WebClient, OpenFeign) · Decidido
 - **Pros:** sincrónico y simple; coherente con el modelo bloqueante del servicio; sin dependencias extra.
 - **Contras:** WebClient/reactivo sería innecesario; OpenFeign suma una dependencia sin necesidad.
 
-### D11 — Reintentos: resiliencia de Framework 7 (alternativas: Resilience4j, manual) · Propuesto
+### D11 — Reintentos: resiliencia de Framework 7 (alternativas: Resilience4j, manual) · Decidido
 - **Pros:** integrada; backoff y máximo de intentos declarativos.
 - **Contras:** API nueva; verificar contra la documentación al implementarla.
 - **Regla:** reintentos acotados y solo sobre lecturas idempotentes (snapshot REST, lecturas Redis). Nunca ciclos ilimitados.
@@ -97,7 +97,7 @@ Restricciones del enunciado que condicionan el stack:
 - **Riesgo:** quien emite los tokens es `cronos-turnos`. Si allí se usa JHipster, su configuración por defecto firma con secreto compartido (HS512) y habría que personalizarla para RS256. Si no fuera viable, se registra un ADR nuevo que reemplace a este y atlas pasa a validar con secreto compartido, documentando la limitación.
 - Relacionada con la autenticación entre servicios (JWT propagado vs técnico): consulta 1 de las consultas al docente.
 
-### D13 — Testing: JUnit 5, AssertJ, Mockito, Testcontainers (Postgres, Kafka, Redis), `MockRestServiceServer`/WireMock para la cátedra, ArchUnit · Propuesto
+### D13 — Testing: JUnit 5, AssertJ, Mockito, Testcontainers (Postgres, Kafka, Redis), `MockRestServiceServer`/WireMock para la cátedra, ArchUnit · Decidido
 - **Pros:** las queries y las transacciones del sync se prueban contra motores reales; ArchUnit verifica las reglas de arquitectura (ver ADR 0003).
 - **Contras:** los tests de integración son más lentos; requieren Docker disponible.
 
