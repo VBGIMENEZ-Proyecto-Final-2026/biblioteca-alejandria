@@ -77,6 +77,8 @@ Estos dos compromisos se consultan al docente (consulta 3).
 └── config                       seguridad, beans, propiedades CATEDRA_*
 ```
 
+`<paquete.base>` es `ar.edu.um.atlas` (`group` de Gradle `ar.edu.um`): dominio invertido de la institución, sin otro requisito del enunciado. Es una convención propia; renombrarlo es mecánico mientras no haya código de negocio.
+
 No hay puertos de entrada: los adaptadores `in` llaman a los casos de uso directamente.
 
 ### Reglas de dependencia
