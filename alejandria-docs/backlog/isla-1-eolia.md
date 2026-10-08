@@ -6,7 +6,7 @@
 
 **Fuera de alcance:** comunicación y contrato entre `atlas-catalogo` y `cronos-turnos`, registro y login de usuarios finales, turnos y reservas, y `hermes-app`.
 
-**Estado del backlog:** los issues de decisiones de diseño (1 a 3) están hechos (issues #5, #6 y #7 de `atlas-catalogo`). El resto de las tareas de la isla se agrega cuando sus decisiones estén justificadas; el esqueleto del proyecto (issue 4) es el siguiente y está abierto.
+**Estado del backlog:** los issues de decisiones de diseño (1 a 3) y el esqueleto del proyecto (4) están hechos (issues #5, #6, #7 y #9 de `atlas-catalogo`). El siguiente es migraciones y persistencia (6), abierto. El resto de las tareas de la isla se agrega cuando sus decisiones estén justificadas. La numeración es la del backlog completo, por eso el 5 (seguridad base) todavía no aparece.
 
 Formato de cada issue: Componente `atlas`, descripción, criterios, referencias y dependencias (igual que `isla-0-itaca.md`). Las decisiones viven en este repo; los issues solo describen la tarea.
 
@@ -39,20 +39,34 @@ Definir el boceto del modelo de datos: tablas del catálogo, tablas de control d
 - [x] Alcance de "disponibilidad" definido, o diferido explícitamente.
 Estado: hecho (issue #7 de `atlas-catalogo`), publicado en `modelo-datos/atlas-catalogo.md`.
 Referencias: `modelo-datos/atlas-catalogo.md`; enunciado 4.1, 6 y 7.
-Depende de: 1 (PostgreSQL, Flyway) y 2. Bloquea: 4 y el issue de migraciones y persistencia (por abrir).
+Depende de: 1 (PostgreSQL, Flyway) y 2. Bloquea: 4 y 6.
 
 ### 4. [atlas] Esqueleto del proyecto atlas-catalogo
 Crear el proyecto Spring Boot con el stack y la estructura de paquetes decididos en los ADR 0002 y 0003: que compile, arranque, se conecte a la PostgreSQL del compose con Flyway configurado y responda su endpoint de salud. Sin tablas, sin lógica de sincronización y sin seguridad.
-- [ ] Spring Boot 4.1, Java 25 y Gradle (Kotlin DSL), con wrapper 9.1.0 o superior.
-- [ ] Dependencias mínimas (Web, Actuator, Data JPA, Flyway, PostgreSQL y las de test, con ArchUnit 1.4.1 o superior); Kafka, Redis y Security en sus propios issues.
-- [ ] Estructura de paquetes del ADR 0003.
-- [ ] Conexión a la base solo por variables de entorno (`ATLAS_DB_*`); las `CATEDRA_*` las declara cada issue de cliente.
-- [ ] Flyway configurado; la aplicación arranca sin migraciones.
-- [ ] `/actuator/health` responde y es el único endpoint de Actuator expuesto.
-- [ ] Test de contexto con Testcontainers sobre Java 25 (si falla el tooling, se documenta y se evalúa Java 21).
-- [ ] Las tres reglas de ArchUnit del ADR 0003 activas y pasando con paquetes vacíos.
-- [ ] `./gradlew build` pasa.
-- [ ] README con requisitos, cómo levantar la base, correr la aplicación y ejecutar los tests.
-Estado: abierto (issue #9 de `atlas-catalogo`).
+- [x] Spring Boot 4.1, Java 25 y Gradle (Kotlin DSL), con wrapper 9.1.0 o superior.
+- [x] Dependencias mínimas (Web, Actuator, Data JPA, Flyway, PostgreSQL y las de test, con ArchUnit 1.4.1 o superior); Kafka, Redis y Security en sus propios issues.
+- [x] Estructura de paquetes del ADR 0003.
+- [x] Conexión a la base solo por variables de entorno (`ATLAS_DB_*`); las `CATEDRA_*` las declara cada issue de cliente.
+- [x] Flyway configurado; la aplicación arranca sin migraciones.
+- [x] `/actuator/health` responde y es el único endpoint de Actuator expuesto.
+- [x] Test de contexto con Testcontainers sobre Java 25 (si falla el tooling, se documenta y se evalúa Java 21).
+- [x] Las tres reglas de ArchUnit del ADR 0003 activas y pasando con paquetes vacíos.
+- [x] `./gradlew build` pasa.
+- [x] README con requisitos, cómo levantar la base, correr la aplicación y ejecutar los tests.
+Estado: hecho (issue #9 y PR #10 de `atlas-catalogo`). El paquete base es `ar.edu.um.atlas` (ADR 0003).
 Referencias: ADR 0001, 0002 y 0003; `modelo-datos/atlas-catalogo.md` (decisión L); enunciado 3 y 3.1.
-Depende de: 1, 2 y 3 (hechos) y de Isla 0. Bloquea: seguridad base, migraciones y persistencia, cliente REST y cliente Redis (issues por abrir).
+Depende de: 1, 2 y 3 (hechos) y de Isla 0. Bloquea: 6, seguridad base, cliente REST y cliente Redis (estos tres, por abrir).
+
+### 6. [atlas] Migraciones y persistencia del catálogo
+Crear con Flyway el esquema del modelo de datos (categorías, profesionales, horarios semanales y la fila de control del sync) y las entidades JPA y repositorios que lo usan, con tests de persistencia contra PostgreSQL real. Solo guarda y lee: sin lógica de sincronización.
+- [ ] Migración `V1` que crea desde una base vacía las cuatro tablas con sus tipos, claves, claves foráneas e índices, y la fila inicial de `sync_state`.
+- [ ] Solo las restricciones del modelo (`NOT NULL`, claves foráneas, dominio de `day_of_week` y `id = 1` en `sync_state`).
+- [ ] Entidades JPA en `domain` (sin Spring) y repositorios de Spring Data en `application.repository`.
+- [ ] *Upsert* idempotente por ID en los repositorios del catálogo y lectura de `sync_state` con candado (`SELECT ... FOR UPDATE`).
+- [ ] Hibernate valida las entidades contra el esquema.
+- [ ] Tests de persistencia contra PostgreSQL real con Testcontainers (no H2).
+- [ ] Reglas de ArchUnit de `domain` y `application` activas sin `allowEmptyShould(true)`.
+- [ ] `./gradlew build` pasa y el README está actualizado.
+Estado: abierto (issue #11 de `atlas-catalogo`).
+Referencias: `modelo-datos/atlas-catalogo.md`; ADR 0002 (D5 a D7 y D13) y ADR 0003; enunciado 3 y 4.1.
+Depende de: 3 y 4 (hechos). Bloquea: sincronización completa, sincronización incremental, búsqueda y estado (issues por abrir).
