@@ -121,8 +121,19 @@ Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (
 | Backlog | Ítem 7 sin login y con la decisión anotada | Ídem |
 | Issue #12 | El snapshot usa entidades del dominio; pruebas con servidor local | Ver decisiones del #12 |
 
+## Próximo: sincronización completa (#8, borrador)
+
+El 2026-10-11 se redactó el issue de sincronización completa, todavía sin abrir en GitHub. Es el primer consumidor del cliente REST (#12) y de `sync_state` (#11). Lo que el borrador propone y se confirma al implementar:
+
+- **Una sola transacción para todo, pedido a la cátedra incluido**, empezando por el candado. *Alternativa:* pedir el snapshot antes y abrir la transacción solo para aplicarlo. *Por qué la primera:* con dos corridas en paralelo, la segunda podría aplicar un snapshot más viejo después del más nuevo y hacer retroceder la copia. *Costo:* una conexión ocupada durante el pedido (peor caso, unos 91 s). *Revisar:* si el catálogo crece o aparecen más corridas concurrentes.
+- **El error se registra en otra transacción**, porque la principal se revierte y se llevaría el registro.
+- **No se escribe `RUNNING`:** el candado ya excluye otras corridas y nadie ve el cambio hasta el *commit*. Se decide en el issue de estado.
+- **Arranque con base vacía** en `adapters.in`, apagable por propiedad; si la cátedra falla, la aplicación arranca igual y deja el error registrado.
+- **Las bajas se deshabilitan sin tocar `updated_at`**, por la decisión J del modelo.
+- Primer uso real de los *setters* de `SyncState`: se decide ahí si pasan a métodos con intención.
+
 ## Pendiente
 
-- Sincronización completa (aplicar el snapshot en una sola unidad de trabajo): es el primer consumidor del cliente REST y de `sync_state`, y define cómo se usan los *setters* y el candado.
-- Cliente Redis y sincronización incremental, seguridad base, búsqueda, estado, documentación y evidencias.
+- Abrir el issue de sincronización completa, previa revisión del borrador.
+- Cliente Redis y sincronización incremental (planificador, Kafka, verificación periódica), seguridad base, búsqueda, estado, documentación y evidencias.
 - Consultas al docente que condicionan lo que sigue: 2 (alcance de "disponibilidad"), 3 (hexagonal liviana) y 10 (`oldest-available-version`); y D12 (RS256) para la seguridad base.

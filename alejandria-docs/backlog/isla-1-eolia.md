@@ -6,7 +6,7 @@
 
 **Fuera de alcance:** comunicación y contrato entre `atlas-catalogo` y `cronos-turnos`, registro y login de usuarios finales, turnos y reservas, y `hermes-app`.
 
-**Estado del backlog:** los issues de decisiones de diseño (1 a 3) y el esqueleto del proyecto (4) están hechos (issues #5, #6, #7 y #9 de `atlas-catalogo`). Migraciones y persistencia (6) está hecho (issue #11, PR #13). El cliente REST de la cátedra (7) también está hecho (issue #12, PR #14). El resto de las tareas de la isla se agrega cuando sus decisiones estén justificadas. La numeración es la del backlog completo, por eso el 5 (seguridad base) todavía no aparece.
+**Estado del backlog:** los issues de decisiones de diseño (1 a 3) y el esqueleto del proyecto (4) están hechos (issues #5, #6, #7 y #9 de `atlas-catalogo`). Migraciones y persistencia (6) está hecho (issue #11, PR #13). El cliente REST de la cátedra (7) también está hecho (issue #12, PR #14). La sincronización completa (8) tiene el borrador listo y el issue por abrir. El resto de las tareas de la isla se agrega cuando sus decisiones estén justificadas. La numeración es la del backlog completo, por eso el 5 (seguridad base) todavía no aparece.
 
 Formato de cada issue: Componente `atlas`, descripción, criterios, referencias y dependencias (igual que `isla-0-itaca.md`). Las decisiones viven en este repo; los issues solo describen la tarea.
 
@@ -73,7 +73,7 @@ Depende de: 3 y 4 (hechos). Bloquea: sincronización completa, sincronización i
 
 ### 7. [atlas] Cliente REST de la cátedra: snapshot del catálogo
 Pedir a la cátedra el snapshot completo con el JWT técnico, con timeouts definidos, reintentos acotados y errores traducidos. No incluye login: el `id_token` ya es el JWT técnico de un año (referencia de integración 4 y ADR 0001) y renovarlo con `/api/authenticate` exigiría usuario y contraseña que no forman parte de las variables `CATEDRA_*`.
-- [x] Puerto `CatalogSnapshotSource` con modelo propio y adaptador `RestClient` declarativo en `adapters.out.rest`.
+- [x] Puerto `CatalogSnapshotSource` con un snapshot propio (versión y entidades del dominio) y adaptador `RestClient` declarativo en `adapters.out.rest`.
 - [x] `CATEDRA_REST_BASE_URL` y `CATEDRA_ID_TOKEN` declaradas y validadas al arrancar.
 - [x] Interpreta instantes UTC, horas `HH:mm` y `HH:mm:ss` y campos desconocidos.
 - [x] Timeouts configurables y reintentos acotados solo ante fallas transitorias.
@@ -81,4 +81,16 @@ Pedir a la cátedra el snapshot completo con el JWT técnico, con timeouts defin
 - [x] Tests con respuestas simuladas, incluyendo errores, y una verificación manual contra la cátedra real.
 Estado: hecho (issue #12 y PR #14 de `atlas-catalogo`, mergeado a `dev` el 2026-10-11). Detalle de las decisiones en `implementacion/atlas-catalogo.md`.
 Referencias: `catedra/INTEGRATION_REFERENCE-v2.md` (4, 6, 7, 13 y 18.4); ADR 0001, 0002 (D10 y D11) y 0003; enunciado 4.1, 6 y 9.
-Depende de: 4 (hecho). No depende del 6. Bloquea: sincronización completa (issue por abrir).
+Depende de: 4 (hecho). Bloquea: 8.
+
+### 8. [atlas] Sincronización completa: aplicar el snapshot
+Inicializar o reconstruir la copia local desde el snapshot de forma transaccional: la corrida toma el candado de `sync_state`, pide el snapshot y lo aplica en una sola transacción, deshabilitando lo que ya no viene, y registra como versión local exactamente la del snapshot. Con base vacía se ejecuta sola al arrancar. Decidir cuándo corresponde un snapshot (planificador, Redis, Kafka) queda para la sincronización incremental.
+- [ ] Caso de uso `ApplySnapshot` con candado: dos corridas en paralelo se serializan.
+- [ ] Con base vacía, al arrancar se hace el snapshot inicial; si la cátedra falla, la aplicación arranca y registra el error.
+- [ ] El snapshot se aplica en una sola unidad de trabajo: si falla, queda el estado anterior y `sync_state` registra el error.
+- [ ] La versión local registrada coincide con los datos almacenados; lo que no viene en el snapshot se deshabilita, nunca se borra.
+- [ ] Repetir el snapshot no duplica datos.
+- [ ] Tests de integración contra PostgreSQL real: inicialización, reconstrucción, repetición, falla a mitad de camino y paralelismo.
+Estado: borrador listo, issue por abrir.
+Referencias: enunciado 6.1 y 8; ADR 0003 (aplicación del snapshot, bajas y exclusión mutua); modelo de datos; `catedra/INTEGRATION_REFERENCE-v2.md` (7 y 18).
+Depende de: 6 y 7 (hechos). Bloquea: sincronización incremental, búsqueda y estado (issues por abrir).
