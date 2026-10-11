@@ -13,6 +13,7 @@ Este documento registra cómo se fue construyendo el código, en el orden en que
 | 2026-10-08 | #9 · PR #10 | Esqueleto Spring Boot 4.1, Java 25, Gradle; Flyway sin tablas; ArchUnit con reglas vacías | Cerrado |
 | 2026-10-11 | #11 · PR #13 | Migración `V1`, entidades JPA, repositorios con *upsert* y candado, tests contra PostgreSQL real | Cerrado |
 | 2026-10-11 | #12 · PR #14 | Cliente REST del snapshot, con reintentos y errores traducidos; verificado contra la cátedra real | Cerrado |
+| 2026-10-11 | #15 | Sincronización completa: aplicar el snapshot (issue redactado y abierto) | Abierto |
 
 Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (cliente REST).
 
@@ -121,9 +122,9 @@ Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (
 | Backlog | Ítem 7 sin login y con la decisión anotada | Ídem |
 | Issue #12 | El snapshot usa entidades del dominio; pruebas con servidor local | Ver decisiones del #12 |
 
-## Próximo: sincronización completa (#8, borrador)
+## Próximo: sincronización completa (#15)
 
-El 2026-10-11 se redactó el issue de sincronización completa, todavía sin abrir en GitHub. Es el primer consumidor del cliente REST (#12) y de `sync_state` (#11). Lo que el borrador propone y se confirma al implementar:
+El 2026-10-11 se redactó el issue de sincronización completa y se abrió como #15. Es el primer consumidor del cliente REST (#12) y de `sync_state` (#11). Lo que el borrador propone y se confirma al implementar:
 
 - **Una sola transacción para todo, pedido a la cátedra incluido**, empezando por el candado. *Alternativa:* pedir el snapshot antes y abrir la transacción solo para aplicarlo. *Por qué la primera:* con dos corridas en paralelo, la segunda podría aplicar un snapshot más viejo después del más nuevo y hacer retroceder la copia. *Costo:* una conexión ocupada durante el pedido (peor caso, unos 91 s). *Revisar:* si el catálogo crece o aparecen más corridas concurrentes.
 - **El error se registra en otra transacción**, porque la principal se revierte y se llevaría el registro.
@@ -134,6 +135,6 @@ El 2026-10-11 se redactó el issue de sincronización completa, todavía sin abr
 
 ## Pendiente
 
-- Abrir el issue de sincronización completa, previa revisión del borrador.
+- Implementar el #15 (sincronización completa) en `feature/sync-completa-snapshot`.
 - Cliente Redis y sincronización incremental (planificador, Kafka, verificación periódica), seguridad base, búsqueda, estado, documentación y evidencias.
 - Consultas al docente que condicionan lo que sigue: 2 (alcance de "disponibilidad"), 3 (hexagonal liviana) y 10 (`oldest-available-version`); y D12 (RS256) para la seguridad base.
