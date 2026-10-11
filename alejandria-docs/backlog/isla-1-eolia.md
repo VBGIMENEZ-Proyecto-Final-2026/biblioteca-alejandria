@@ -6,7 +6,7 @@
 
 **Fuera de alcance:** comunicación y contrato entre `atlas-catalogo` y `cronos-turnos`, registro y login de usuarios finales, turnos y reservas, y `hermes-app`.
 
-**Estado del backlog:** los issues de decisiones de diseño (1 a 3) y el esqueleto del proyecto (4) están hechos (issues #5, #6, #7 y #9 de `atlas-catalogo`). Están abiertos migraciones y persistencia (6) y el cliente REST de la cátedra (7). El resto de las tareas de la isla se agrega cuando sus decisiones estén justificadas. La numeración es la del backlog completo, por eso el 5 (seguridad base) todavía no aparece.
+**Estado del backlog:** los issues de decisiones de diseño (1 a 3) y el esqueleto del proyecto (4) están hechos (issues #5, #6, #7 y #9 de `atlas-catalogo`). Migraciones y persistencia (6) está hecho (issue #11, PR #13). Está en curso el cliente REST de la cátedra (7, issue #12). El resto de las tareas de la isla se agrega cuando sus decisiones estén justificadas. La numeración es la del backlog completo, por eso el 5 (seguridad base) todavía no aparece.
 
 Formato de cada issue: Componente `atlas`, descripción, criterios, referencias y dependencias (igual que `isla-0-itaca.md`). Las decisiones viven en este repo; los issues solo describen la tarea.
 
@@ -59,15 +59,15 @@ Depende de: 1, 2 y 3 (hechos) y de Isla 0. Bloquea: 6, seguridad base, cliente R
 
 ### 6. [atlas] Migraciones y persistencia del catálogo
 Crear con Flyway el esquema del modelo de datos (categorías, profesionales, horarios semanales y la fila de control del sync) y las entidades JPA y repositorios que lo usan, con tests de persistencia contra PostgreSQL real. Solo guarda y lee: sin lógica de sincronización.
-- [ ] Migración `V1` que crea desde una base vacía las cuatro tablas con sus tipos, claves, claves foráneas e índices, y la fila inicial de `sync_state`.
-- [ ] Solo las restricciones del modelo (`NOT NULL`, claves foráneas, dominio de `day_of_week` y `id = 1` en `sync_state`).
-- [ ] Entidades JPA en `domain` (sin Spring) y repositorios de Spring Data en `application.repository`.
-- [ ] *Upsert* idempotente por ID en los repositorios del catálogo y lectura de `sync_state` con candado (`SELECT ... FOR UPDATE`).
-- [ ] Hibernate valida las entidades contra el esquema.
-- [ ] Tests de persistencia contra PostgreSQL real con Testcontainers (no H2).
-- [ ] Reglas de ArchUnit de `domain` y `application` activas sin `allowEmptyShould(true)`.
-- [ ] `./gradlew build` pasa y el README está actualizado.
-Estado: abierto (issue #11 de `atlas-catalogo`).
+- [x] Migración `V1` que crea desde una base vacía las cuatro tablas con sus tipos, claves, claves foráneas e índices, y la fila inicial de `sync_state`.
+- [x] Solo las restricciones del modelo (`NOT NULL`, claves foráneas, dominio de `day_of_week` y `id = 1` en `sync_state`).
+- [x] Entidades JPA en `domain` (sin Spring) y repositorios de Spring Data en `application.repository`.
+- [x] *Upsert* idempotente por ID en los repositorios del catálogo y lectura de `sync_state` con candado (`SELECT ... FOR UPDATE`).
+- [x] Hibernate valida las entidades contra el esquema.
+- [x] Tests de persistencia contra PostgreSQL real con Testcontainers (no H2).
+- [x] Reglas de ArchUnit de `domain` y `application` activas sin `allowEmptyShould(true)`.
+- [x] `./gradlew build` pasa y el README está actualizado.
+Estado: hecho (issue #11 y PR #13 de `atlas-catalogo`, mergeado a `dev` el 2026-10-11).
 Referencias: `modelo-datos/atlas-catalogo.md`; ADR 0002 (D5 a D7 y D13) y ADR 0003; enunciado 3 y 4.1.
 Depende de: 3 y 4 (hechos). Bloquea: sincronización completa, sincronización incremental, búsqueda y estado (issues por abrir).
 
@@ -79,6 +79,6 @@ Pedir a la cátedra el snapshot completo con el JWT técnico, con timeouts defin
 - [ ] Timeouts configurables y reintentos acotados solo ante fallas transitorias.
 - [ ] Errores traducidos por `status` y `code`; el token nunca se escribe en logs.
 - [ ] Tests con respuestas simuladas, incluyendo errores, y una verificación manual contra la cátedra real.
-Estado: abierto (issue #12 de `atlas-catalogo`).
+Estado: en curso (issue #12 de `atlas-catalogo`, rama `feature/cliente-rest-catedra`).
 Referencias: `catedra/INTEGRATION_REFERENCE-v2.md` (4, 6, 7, 13 y 18.4); ADR 0001, 0002 (D10 y D11) y 0003; enunciado 4.1, 6 y 9.
 Depende de: 4 (hecho). No depende del 6. Bloquea: sincronización completa (issue por abrir).
