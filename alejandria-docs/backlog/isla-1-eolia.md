@@ -6,7 +6,7 @@
 
 **Fuera de alcance:** comunicación y contrato entre `atlas-catalogo` y `cronos-turnos`, registro y login de usuarios finales, turnos y reservas, y `hermes-app`.
 
-**Estado del backlog:** los issues de decisiones de diseño (1 a 3) y el esqueleto del proyecto (4) están hechos (issues #5, #6, #7 y #9 de `atlas-catalogo`). Migraciones y persistencia (6) está hecho (issue #11, PR #13). Está en curso el cliente REST de la cátedra (7, issue #12). El resto de las tareas de la isla se agrega cuando sus decisiones estén justificadas. La numeración es la del backlog completo, por eso el 5 (seguridad base) todavía no aparece.
+**Estado del backlog:** los issues de decisiones de diseño (1 a 3) y el esqueleto del proyecto (4) están hechos (issues #5, #6, #7 y #9 de `atlas-catalogo`). Migraciones y persistencia (6) está hecho (issue #11, PR #13). El cliente REST de la cátedra (7) también está hecho (issue #12, PR #14). El resto de las tareas de la isla se agrega cuando sus decisiones estén justificadas. La numeración es la del backlog completo, por eso el 5 (seguridad base) todavía no aparece.
 
 Formato de cada issue: Componente `atlas`, descripción, criterios, referencias y dependencias (igual que `isla-0-itaca.md`). Las decisiones viven en este repo; los issues solo describen la tarea.
 
@@ -73,12 +73,12 @@ Depende de: 3 y 4 (hechos). Bloquea: sincronización completa, sincronización i
 
 ### 7. [atlas] Cliente REST de la cátedra: snapshot del catálogo
 Pedir a la cátedra el snapshot completo con el JWT técnico, con timeouts definidos, reintentos acotados y errores traducidos. No incluye login: el `id_token` ya es el JWT técnico de un año (referencia de integración 4 y ADR 0001) y renovarlo con `/api/authenticate` exigiría usuario y contraseña que no forman parte de las variables `CATEDRA_*`.
-- [ ] Puerto `CatalogSnapshotSource` con modelo propio y adaptador `RestClient` declarativo en `adapters.out.rest`.
-- [ ] `CATEDRA_REST_BASE_URL` y `CATEDRA_ID_TOKEN` declaradas y validadas al arrancar.
-- [ ] Interpreta instantes UTC, horas `HH:mm` y `HH:mm:ss` y campos desconocidos.
-- [ ] Timeouts configurables y reintentos acotados solo ante fallas transitorias.
-- [ ] Errores traducidos por `status` y `code`; el token nunca se escribe en logs.
-- [ ] Tests con respuestas simuladas, incluyendo errores, y una verificación manual contra la cátedra real.
-Estado: implementado en la rama `feature/cliente-rest-catedra` (issue #12 de `atlas-catalogo`), con el PR por abrir. Detalle de las decisiones en `implementacion/atlas-catalogo.md`.
+- [x] Puerto `CatalogSnapshotSource` con modelo propio y adaptador `RestClient` declarativo en `adapters.out.rest`.
+- [x] `CATEDRA_REST_BASE_URL` y `CATEDRA_ID_TOKEN` declaradas y validadas al arrancar.
+- [x] Interpreta instantes UTC, horas `HH:mm` y `HH:mm:ss` y campos desconocidos.
+- [x] Timeouts configurables y reintentos acotados solo ante fallas transitorias.
+- [x] Errores traducidos por `status` y `code`; el token nunca se escribe en logs.
+- [x] Tests con respuestas simuladas, incluyendo errores, y una verificación manual contra la cátedra real.
+Estado: hecho (issue #12 y PR #14 de `atlas-catalogo`, mergeado a `dev` el 2026-10-11). Detalle de las decisiones en `implementacion/atlas-catalogo.md`.
 Referencias: `catedra/INTEGRATION_REFERENCE-v2.md` (4, 6, 7, 13 y 18.4); ADR 0001, 0002 (D10 y D11) y 0003; enunciado 4.1, 6 y 9.
 Depende de: 4 (hecho). No depende del 6. Bloquea: sincronización completa (issue por abrir).

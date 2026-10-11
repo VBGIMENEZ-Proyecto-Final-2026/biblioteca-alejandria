@@ -12,7 +12,7 @@ Este documento registra cómo se fue construyendo el código, en el orden en que
 | 2026-10-08 | #7 | Modelo de datos (decisiones A a L) | Cerrado |
 | 2026-10-08 | #9 · PR #10 | Esqueleto Spring Boot 4.1, Java 25, Gradle; Flyway sin tablas; ArchUnit con reglas vacías | Cerrado |
 | 2026-10-11 | #11 · PR #13 | Migración `V1`, entidades JPA, repositorios con *upsert* y candado, tests contra PostgreSQL real | Cerrado |
-| 2026-10-11 | #12 | Cliente REST del snapshot, con reintentos y errores traducidos; verificado contra la cátedra real | Implementado en rama, PR por abrir |
+| 2026-10-11 | #12 · PR #14 | Cliente REST del snapshot, con reintentos y errores traducidos; verificado contra la cátedra real | Cerrado |
 
 Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (cliente REST).
 
@@ -123,7 +123,6 @@ Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (
 
 ## Pendiente
 
-- Abrir el PR del #12 a `dev` y cerrar el issue a mano tras el merge.
 - Sincronización completa (aplicar el snapshot en una sola unidad de trabajo): es el primer consumidor del cliente REST y de `sync_state`, y define cómo se usan los *setters* y el candado.
 - Cliente Redis y sincronización incremental, seguridad base, búsqueda, estado, documentación y evidencias.
 - Consultas al docente que condicionan lo que sigue: 2 (alcance de "disponibilidad"), 3 (hexagonal liviana) y 10 (`oldest-available-version`); y D12 (RS256) para la seguridad base.
