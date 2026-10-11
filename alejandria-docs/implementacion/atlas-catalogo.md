@@ -1,0 +1,129 @@
+# Implementación de atlas-catalogo · evolución
+
+**Componente:** atlas-catalogo · **Isla:** 1 · Eolia · **Actualizado:** 2026-10-11
+
+Este documento registra cómo se fue construyendo el código, en el orden en que se hizo, y qué se decidió o se cambió respecto del diseño original (ADR [0002](../arquitectura/adr/0002-stack.md) y [0003](../arquitectura/adr/0003-arquitectura.md), [modelo de datos](../modelo-datos/atlas-catalogo.md)). Las decisiones de diseño siguen viviendo en los ADR; acá van las que aparecieron **al implementar**, con su porqué, el costo aceptado y cuándo conviene revisarlas. Se agrega una sección por cada issue de código que se cierra.
+
+## Línea de tiempo
+
+| Fecha | Issue / PR | Qué se hizo | Estado |
+|---|---|---|---|
+| 2026-10-07 | #5, #6 | Stack (ADR 0002) y arquitectura interna (ADR 0003) | Cerrados |
+| 2026-10-08 | #7 | Modelo de datos (decisiones A a L) | Cerrado |
+| 2026-10-08 | #9 · PR #10 | Esqueleto Spring Boot 4.1, Java 25, Gradle; Flyway sin tablas; ArchUnit con reglas vacías | Cerrado |
+| 2026-10-11 | #11 · PR #13 | Migración `V1`, entidades JPA, repositorios con *upsert* y candado, tests contra PostgreSQL real | Cerrado |
+| 2026-10-11 | #12 | Cliente REST del snapshot, con reintentos y errores traducidos; verificado contra la cátedra real | Implementado en rama, PR por abrir |
+
+Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (cliente REST).
+
+## Mapa del código frente al ADR 0003
+
+| Paquete (`ar.edu.um.atlas`) | Contenido hoy | Issue |
+|---|---|---|
+| `domain` | `ProfessionalCategory`, `Professional`, `WeeklySchedule`, `SyncState` y los enums `SyncStatus`, `SyncResult`, `SnapshotReason` | #11 |
+| `application.repository` | Un repositorio de Spring Data por entidad | #11 |
+| `application.port.out` | `CatalogSnapshotSource`, `CatalogSnapshot` y las excepciones `CatedraUnavailableException`, `CatedraCredentialRejectedException`, `CatedraInvalidResponseException` | #12 |
+| `adapters.out.rest` | Cliente declarativo `CatedraSnapshotApi`, DTO del JSON, conversión al modelo y `CatedraRestSnapshotSource` | #12 |
+| `config` | `CatedraProperties` y `CatedraRestConfig` | #12 |
+| `application` (casos de uso), `adapters.in`, `adapters.out.redis` | Todavía no existen | issues por abrir |
+
+## #11 · Migraciones y persistencia
+
+**Qué quedó:** `V1__esquema_catalogo.sql` con las cuatro tablas del modelo y la fila inicial de `sync_state`; entidades en `domain` (solo `jakarta.persistence`); repositorios con *upsert* nativo `ON CONFLICT (id) DO UPDATE` y lectura con `SELECT ... FOR UPDATE`; `ddl-auto=validate`; las reglas de ArchUnit de `domain` y `application` sin `allowEmptyShould`. La decisión L del modelo se cumplió tal cual: el esquema se creó en este issue y no en el esqueleto.
+
+**Pruebas (14 nuevas):** esquema creado por Flyway desde cero e índice parcial; ida y vuelta de cada entidad (con segundos en `time` y descripción nula); *upsert* repetido sin duplicados y actualizando datos; claves foráneas; `day_of_week` inválido; `sync_state` con una sola fila; y el candado con dos transacciones en paralelo (la segunda espera hasta que la primera termina).
+
+### Decisiones tomadas al implementar
+
+**Upsert por consulta nativa con un método `default` sobre la entidad.**
+- *Alternativa:* `save()` de Spring Data.
+- *Por qué:* con un ID asignado por la cátedra, `save()` hace primero un `SELECT` y después `INSERT` o `UPDATE`; no es atómico ni idempotente bajo concurrencia. El `ON CONFLICT` sí lo es (decisión B).
+- *Costo:* hay SQL nativo en los repositorios y la lista de columnas se duplica entre la migración y la consulta; un test de ida y vuelta por entidad lo cubre.
+- *Revisar:* si el modelo crece en columnas.
+
+**Las relaciones se guardan como IDs (`categoryId`, `professionalId`), sin `@ManyToOne`.**
+- *Alternativa:* asociaciones JPA.
+- *Por qué:* el *upsert* nativo trabaja con IDs y la copia es de solo lectura; evita cargas perezosas y consultas que nadie pidió.
+- *Costo:* la búsqueda tendrá que unir tablas de forma explícita.
+- *Revisar:* al implementar la API de búsqueda.
+
+**`SyncState` con *setters* públicos.**
+- *Alternativa:* métodos con intención (`iniciarCorrida()`, `registrarError(...)`).
+- *Por qué:* no hay lógica de sincronización todavía y no conviene inventar un comportamiento sin caso de uso.
+- *Costo:* cualquiera puede dejar la fila en un estado incoherente.
+- *Revisar:* al implementar la sincronización completa: ahí aparecen las transiciones reales.
+
+**`ddl-auto=validate` también en la aplicación, no solo en los tests.**
+- *Por qué:* si una entidad y la migración no coinciden, que falle el arranque y no una consulta en producción.
+- *Costo:* ninguno conocido; hubo que verificar que Hibernate acepta `text` frente a `String` y `time` frente a `LocalTime`, y lo acepta.
+
+**Tests con `@SpringBootTest` y rollback, sin `@DataJpaTest`.**
+- *Por qué:* es lo mismo que ya usaba el test de contexto (misma configuración de Testcontainers) y evita sumar el starter de tests de JPA.
+- *Costo:* arranca el contexto completo; el contexto se comparte entre clases, así que el costo se paga una vez.
+- *El candado va en una clase aparte*, sin `@Transactional`, porque necesita dos transacciones reales en paralelo.
+
+## #12 · Cliente REST de la cátedra (snapshot)
+
+**Qué quedó:** el puerto `CatalogSnapshotSource` y su adaptador `CatedraRestSnapshotSource`, con un `RestClient` declarativo (`@HttpExchange`). Pide `GET /api/synchronization/snapshot` con el JWT técnico como `Bearer`, convierte la respuesta, reintenta solo ante fallas transitorias y traduce los errores. No guarda nada en la base: eso es el issue de sincronización completa.
+
+**Pruebas (21 nuevas):** 17 contra un servidor HTTP local que simula a la cátedra (snapshot completo y vacío, campos desconocidos, horas con y sin segundos, cabecera `Authorization`, `401` sin `code`, `403` con `code`, `500`, `503` con recuperación y persistente, timeout de lectura, cátedra caída, JSON inválido, campo obligatorio ausente, día de la semana desconocido, `404`, redirección y token fuera de mensajes) y 4 de validación de variables al arrancar. Verificación manual contra la cátedra real: [evidencia](../evidencias/isla-1-cliente-rest-snapshot.md).
+
+### Decisiones tomadas al implementar
+
+**Sin login técnico: el `CATEDRA_ID_TOKEN` se usa directo como `Bearer`.** (Decidido con el usuario antes de abrir el issue.)
+- *Alternativa:* llamar a `/api/authenticate` y renovar el token.
+- *Por qué:* el JWT técnico dura un año (referencia 4) y renovarlo exige usuario y contraseña, que no forman parte del set `CATEDRA_*` (ADR 0001).
+- *Costo:* cuando el token venza hay que rotarlo a mano en el `.env`; el `401` lo dice en el mensaje.
+- *Revisar:* si el token llegara a vencer durante el proyecto.
+- *Consecuencia en el diseño:* el ADR 0003 hablaba de "login técnico y snapshot" en `adapters.out.rest`; se corrigió.
+
+**El snapshot entrega entidades del dominio, no clases de datos nuevas.** *(Cambia el issue, que decía "modelo propio".)*
+- *Alternativa:* tres registros propios de datos intermedios.
+- *Por qué:* al estar ya mergeado el #11, las entidades son el modelo de dominio (compromiso 1 del ADR 0003) y la sincronización las aplica sin otra conversión. Un modelo intermedio duplicaría tres clases para nada.
+- *Costo:* el puerto depende de `domain` (permitido por las reglas) y las entidades quedan construidas fuera de una sesión de JPA; no importa, porque se escriben por *upsert* nativo.
+- *Revisar:* si el contrato de la cátedra empezara a diferir del modelo local.
+
+**Reintentos con `RetryTemplate` de Framework 7, de forma programática, y solo ante red, timeout y `503`.**
+- *Alternativa:* `@Retryable` declarativo.
+- *Por qué:* el predicado (qué se reintenta) y la traducción posterior de errores quedan juntos, y los tests usan esperas de milisegundos. Un `500` no se reintenta: la referencia solo garantiza `503` para "dependencia no disponible" (matriz 13.1).
+- *Valores:* conexión 3 s, lectura 30 s, 2 reintentos con espera de 500 ms que se duplica hasta 5 s. Se eligió una lectura larga porque el snapshot es una sola respuesta que puede crecer; la latencia medida hacia la cátedra es de 220 a 520 ms ([smoke test](../evidencias/isla-0-smoke-test.md)) y el snapshot real tardó unos 2,7 s. Peor caso: tres intentos de 30 s más 1,5 s de espera, alrededor de 91 s.
+- *Costo:* una cátedra colgada bloquea la corrida hasta un minuto y medio; es aceptable porque la corrida de sync es exclusiva y no hay usuarios esperando.
+- *Revisar:* con el planificador de sync (reintentos de más alto nivel) y con datos de producción.
+
+**Errores traducidos a tres excepciones selladas, decididas por `status` y `code`.**
+- *Qué hay:* cátedra no disponible (red, timeout, `5xx`), credencial rechazada (`401` y `403`, que pueden venir sin `code`) y respuesta inválida (cuerpo ilegible, campo obligatorio ausente o un `4xx` inesperado).
+- *Por qué una sola jerarquía:* quien llame solo necesita saber si reintentar más tarde, rotar el token o avisar de un problema de contrato. El `status` y el `code` viajan en la excepción para el estado de sync.
+- *Revisar:* al diseñar el estado y manejo de errores de la sincronización.
+
+**Los campos obligatorios se validan al convertir, no en la base.**
+- *Alternativa:* dejar que un `null` falle al insertar.
+- *Por qué:* falla antes de tocar la copia local y con un mensaje que nombra el campo; un snapshot a medio validar nunca debe llegar a aplicarse.
+- *Costo:* si la cátedra vuelve opcional un campo hoy obligatorio, el cliente lo rechaza hasta que se ajuste.
+
+**El token no se escribe en ningún lado y no se siguen redirecciones.**
+- *Por qué:* un redireccionamiento podría reenviar la cabecera a otro destino. Las propiedades enmascaran el token en `toString` y los mensajes de error solo llevan `status` y `code`; hay tests para ambas cosas.
+
+**Pruebas con un servidor HTTP local (`com.sun.net.httpserver`), no con `MockRestServiceServer` ni WireMock.** *(El issue admitía cualquiera de los dos.)*
+- *Por qué:* ejercita la fábrica de peticiones real, los timeouts reales y Jackson 3 de punta a punta, sin dependencias nuevas.
+- *Costo:* el servidor falso es código propio de tests.
+
+**Se agregó `spring-boot-starter-restclient`.** En Boot 4.1 el constructor de la fábrica de peticiones y los ajustes de timeouts y redirecciones están en un módulo aparte; sin el starter no se pueden configurar de forma estándar.
+
+**Jackson 3: el riesgo del ADR 0002 (D2) quedó cubierto por tests.** El ADR pedía no asumir el comportamiento por defecto con campos desconocidos y con `HH:mm`. Con el `RestClient` construido a mano se ignoran los campos desconocidos y se leen horas con y sin segundos, tal como exige la referencia 4.
+
+**Variables nuevas.** `CATEDRA_REST_CONNECT_TIMEOUT`, `CATEDRA_REST_READ_TIMEOUT` y `CATEDRA_REST_MAX_RETRIES` son opcionales, con los valores anteriores por defecto. `CATEDRA_REST_BASE_URL` y `CATEDRA_ID_TOKEN` ya figuraban en el `.env.example` y ahora son obligatorias: sin ellas la aplicación no arranca y el mensaje dice cuál falta.
+
+## Cambios al diseño original
+
+| Documento | Cambio | Motivo |
+|---|---|---|
+| ADR 0003 | El adaptador `rest` ya no hace "login técnico": solo el snapshot | Sin login técnico (ver #12) |
+| Backlog | Ítem 7 sin login y con la decisión anotada | Ídem |
+| Issue #12 | El snapshot usa entidades del dominio; pruebas con servidor local | Ver decisiones del #12 |
+
+## Pendiente
+
+- Abrir el PR del #12 a `dev` y cerrar el issue a mano tras el merge.
+- Sincronización completa (aplicar el snapshot en una sola unidad de trabajo): es el primer consumidor del cliente REST y de `sync_state`, y define cómo se usan los *setters* y el candado.
+- Cliente Redis y sincronización incremental, seguridad base, búsqueda, estado, documentación y evidencias.
+- Consultas al docente que condicionan lo que sigue: 2 (alcance de "disponibilidad"), 3 (hexagonal liviana) y 10 (`oldest-available-version`); y D12 (RS256) para la seguridad base.

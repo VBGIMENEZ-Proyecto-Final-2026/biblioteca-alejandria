@@ -72,7 +72,7 @@ Estos dos compromisos se consultan al docente (consulta 3).
 │   │   ├── web                  controladores REST, DTO, ProblemDetail
 │   │   └── kafka                consumidor de CatalogUpdated
 │   └── out
-│       ├── rest                 cliente de la cátedra (login técnico y snapshot)
+│       ├── rest                 cliente de la cátedra (snapshot; sin login técnico, ver implementación)
 │       └── redis                cliente de la cátedra (metadata, versiones y entidades)
 └── config                       seguridad, beans, propiedades CATEDRA_*
 ```

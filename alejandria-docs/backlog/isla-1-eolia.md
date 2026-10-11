@@ -79,6 +79,6 @@ Pedir a la cátedra el snapshot completo con el JWT técnico, con timeouts defin
 - [ ] Timeouts configurables y reintentos acotados solo ante fallas transitorias.
 - [ ] Errores traducidos por `status` y `code`; el token nunca se escribe en logs.
 - [ ] Tests con respuestas simuladas, incluyendo errores, y una verificación manual contra la cátedra real.
-Estado: en curso (issue #12 de `atlas-catalogo`, rama `feature/cliente-rest-catedra`).
+Estado: implementado en la rama `feature/cliente-rest-catedra` (issue #12 de `atlas-catalogo`), con el PR por abrir. Detalle de las decisiones en `implementacion/atlas-catalogo.md`.
 Referencias: `catedra/INTEGRATION_REFERENCE-v2.md` (4, 6, 7, 13 y 18.4); ADR 0001, 0002 (D10 y D11) y 0003; enunciado 4.1, 6 y 9.
 Depende de: 4 (hecho). No depende del 6. Bloquea: sincronización completa (issue por abrir).

@@ -39,6 +39,7 @@ Cada repo de código tiene en su README un diagrama más cercano a su responsabi
 | `arquitectura/` | Diagramas y explicación de la arquitectura; `arquitectura/adr/` para las decisiones de diseño. |
 | `contratos/` | Contratos entre `atlas-catalogo` y `cronos-turnos`: operaciones, DTO, autenticación y errores. |
 | `modelo-datos/` | Modelo de datos de cada servicio y delimitación de su propiedad. |
+| `implementacion/` | Evolución del código de cada servicio: qué se construyó, en qué orden y qué se decidió al implementar frente a los ADR. |
 | `skills/` | Skills del proyecto (vacía en esta versión). |
 | `evidencias/` | Resultados de pruebas y verificaciones, sin secretos. |
 | `backlog/` | Documentos de backlog por iteración, fuente para cargar los issues. |
