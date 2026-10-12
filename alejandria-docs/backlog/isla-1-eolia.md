@@ -6,7 +6,7 @@
 
 **Fuera de alcance:** comunicación y contrato entre `atlas-catalogo` y `cronos-turnos`, registro y login de usuarios finales, turnos y reservas, y `hermes-app`.
 
-**Estado del backlog:** los issues de decisiones de diseño (1 a 3) y el esqueleto del proyecto (4) están hechos (issues #5, #6, #7 y #9 de `atlas-catalogo`). Migraciones y persistencia (6) está hecho (issue #11, PR #13). El cliente REST de la cátedra (7) también está hecho (issue #12, PR #14). La sincronización completa (8) también está hecha (issue #15, PR #16). El cliente Redis (9) está implementado y con el PR abierto (issue #17, PR #18). El resto de las tareas de la isla se agrega cuando sus decisiones estén justificadas. La numeración es la del backlog completo, por eso el 5 (seguridad base) todavía no aparece.
+**Estado del backlog:** los issues de decisiones de diseño (1 a 3) y el esqueleto del proyecto (4) están hechos (issues #5, #6, #7 y #9 de `atlas-catalogo`). Migraciones y persistencia (6) está hecho (issue #11, PR #13). El cliente REST de la cátedra (7) también está hecho (issue #12, PR #14). La sincronización completa (8) también está hecha (issue #15, PR #16). El cliente Redis (9) está implementado y mergeado a `dev` (issue #17, PR #18; el issue se cierra a mano). La sincronización incremental (10) está abierta (issue #19). El resto de las tareas de la isla se agrega cuando sus decisiones estén justificadas. La numeración es la del backlog completo, por eso el 5 (seguridad base) todavía no aparece.
 
 Formato de cada issue: Componente `atlas`, descripción, criterios, referencias y dependencias (igual que `isla-0-itaca.md`). Las decisiones viven en este repo; los issues solo describen la tarea.
 
@@ -102,6 +102,18 @@ Leer en Redis lo que la cátedra publica para la sincronización incremental: la
 - [x] Configuración validada al arrancar, con la contraseña fuera de logs y mensajes; reintentos acotados solo ante fallas transitorias.
 - [x] Errores traducidos a las excepciones del puerto (propuesto: las mismas tres del cliente REST).
 - [x] Tests contra Redis real (Testcontainers), incluido un usuario ACL equivalente al de la cátedra, y una verificación manual contra el Redis real.
-Estado: implementado, PR #18 abierto (issue #17 de `atlas-catalogo`). Detalle de las decisiones en `implementacion/atlas-catalogo.md` y verificación en `evidencias/isla-1-cliente-redis.md`.
+Estado: implementado, PR #18 mergeado a `dev` el 2026-10-12 (issue #17 de `atlas-catalogo`, por cerrar). Detalle de las decisiones en `implementacion/atlas-catalogo.md` y verificación en `evidencias/isla-1-cliente-redis.md`.
 Referencias: `catedra/INTEGRATION_REFERENCE-v2.md` (14, 18.2 y 18.4); ADR 0002 (D9, D11 y D13) y 0003; enunciado 6.2 y 8.
 Depende de: 4 (hecho). No depende de 8. Bloquea: sincronización incremental (issue por abrir).
+
+### 10. [atlas] Sincronización incremental: planificador y aplicación de cambios
+Mantener la copia local al día cuando la cátedra publica una versión nueva: un caso de uso compara la versión local con la metadata de Redis, decide con una función pura entre `Noop`, `Incremental` y `Snapshot`, y lo ejecuta. Los disparadores son el arranque y una verificación periódica de la versión, que también recupera las notificaciones perdidas. El consumidor de Kafka es otro disparador del mismo caso de uso y va aparte (ítem 15).
+- [ ] Planificador como función pura, con una prueba por cada fila de la tabla del ADR 0003.
+- [ ] Cada versión se aplica en orden en su propia transacción, con candado, y la versión local avanza solo si termina bien.
+- [ ] Repetir una versión o una corrida no altera el resultado (idempotencia).
+- [ ] Discontinuidad, `changes` ausente, versión fuera de ventana o estado no verificable disparan el snapshot y la copia queda consistente; una falla transitoria no escala a snapshot y deja el error.
+- [ ] Reintentos acotados y sin ciclos infinitos.
+- [ ] Tests de idempotencia, discontinuidad y recuperación contra PostgreSQL real.
+Estado: abierto (issue #19 de `atlas-catalogo`). Lo marcado como propuesto en el issue se confirma al implementar; la fila `local < oldest` del planificador depende de la consulta 10 al docente.
+Referencias: enunciado 6.2 y 8; ADR 0003; `catedra/INTEGRATION_REFERENCE-v2.md` (14, 16 y 18).
+Depende de: 8 y 9 (hechos). Bloquea: Kafka (15), estado y manejo de errores (12) y evidencias (14).
