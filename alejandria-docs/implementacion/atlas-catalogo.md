@@ -15,8 +15,9 @@ Este documento registra cómo se fue construyendo el código, en el orden en que
 | 2026-10-11 | #12 · PR #14 | Cliente REST del snapshot, con reintentos y errores traducidos; verificado contra la cátedra real | Cerrado |
 | 2026-10-12 | #15 · PR #16 | Sincronización completa: aplicar el snapshot y arranque con base vacía | Cerrado |
 | 2026-10-12 | #17 · PR #18 | Cliente Redis de la cátedra: metadata, cambios y entidades; verificado contra la cátedra real | Cerrado |
+| 2026-10-12 | #19 | Sincronización incremental: planificador, aplicación de cambios por versión, arranque y verificación periódica (rama `feature/sync-incremental`) | Implementado, PR pendiente |
 
-Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (cliente REST) → 58 (sincronización completa) → 86 (cliente Redis).
+Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (cliente REST) → 58 (sincronización completa) → 86 (cliente Redis) → 133 (sincronización incremental).
 
 ## Mapa del código frente al ADR 0003
 
@@ -27,9 +28,11 @@ Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (
 | `application.port.out` | `CatalogSnapshotSource`, `CatalogSnapshot` y las excepciones `CatedraUnavailableException`, `CatedraCredentialRejectedException`, `CatedraInvalidResponseException` | #12 |
 | `application.port.out` | `CatalogChangeSource`, `CatalogMetadata` y `VersionChanges` (las excepciones son las mismas) | #17 |
 | `adapters.out.rest` | Cliente declarativo `CatedraSnapshotApi`, DTO del JSON, conversión al modelo y `CatedraRestSnapshotSource` | #12 |
-| `application.sync` | Caso de uso `ApplySnapshot`, `SyncErrorCode` y `SnapshotSyncException` | #15 |
-| `adapters.in.startup` | `SnapshotOnStartup`: dispara el snapshot con la base vacía | #15 |
-| `config` | `CatedraProperties`, `CatedraRestConfig`, `SyncConfig` (reloj y disparador de arranque), `CatedraRedisProperties` y `CatedraRedisConfig` | #12, #15, #17 |
+| `application.sync` | Casos de uso `SyncCatalog` (orquesta), `ApplySnapshot` y `ApplyIncremental`; `SyncStateRecorder`, `SyncErrorCode`, `SyncException`, `SyncTrigger` y `SyncLimits` | #15, #19 |
+| `application.sync.plan` | `SyncPlanner` (función pura) y `SyncPlan` | #19 |
+| `adapters.in.startup` | `SyncOnStartup`: corre la sincronización al terminar de arrancar | #15, #19 |
+| `adapters.in.schedule` | `PeriodicSyncCheck`: verificación periódica de la versión | #19 |
+| `config` | `CatedraProperties`, `CatedraRestConfig`, `SyncConfig` y `SyncProperties` (reloj, cotas y disparadores), `CatedraRedisProperties` y `CatedraRedisConfig` | #12, #15, #17, #19 |
 | `adapters.out.redis` | `CatedraRedisChangeSource`, `RedisJson` y `RedisEntityMapper` | #17 |
 | `adapters.in` (web, Kafka) | Todavía no existen | issues por abrir |
 
@@ -211,8 +214,53 @@ Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (
 | ADR 0003 | Sin cambios: el puerto se llama `CatalogChangeSource` y el adaptador vive en `adapters.out.redis`, como estaba previsto | |
 | Verificación | La cátedra real tiene `oldest = 1` y `changes:1` existe; dato para la consulta 10 | [Evidencia](../evidencias/isla-1-cliente-redis.md) |
 
+## #19 · Sincronización incremental
+
+**Qué quedó:** `SyncCatalog.run(disparo)` en `application.sync`. Lee la versión local; con la base vacía pide el snapshot sin tocar Redis; si hay versión local, lee la metadata, la pasa al planificador (`SyncPlanner`, función pura con la tabla del ADR 0003) y ejecuta el plan: `Noop` (se registra en `sync_state`), `Snapshot` con su motivo o `Incremental`. `ApplyIncremental` aplica cada versión en su propia transacción con candado y avanza la versión local solo si termina bien; relee la metadata al terminar y sigue si apareció una versión nueva, con un tope de 1000 versiones por corrida. Los disparadores son el arranque (`SyncOnStartup`, que reemplaza al del #15) y una verificación periódica (`PeriodicSyncCheck`, 60 s por defecto, con espera fija entre corridas).
+
+**Pruebas (47 nuevas, entre ellas 12 del planificador y 1 regla de ArchUnit):** una por fila del planificador y por borde; contra PostgreSQL real con Redis y REST simulados: una versión, varias en orden, entidad nueva y baja lógica, repetir una versión, `current` que sube durante la corrida, tope de versiones, falta de `changes`, un ID ausente (se deshabilita), dos IDs ausentes (misma versión y versiones distintas), referencia inexistente con *rollback*, datos inválidos, metadata ausente o ilegible, local adelantada y fuera de ventana, Redis caído con recuperación, credencial rechazada, falla inesperada con su código, primera carga sin leer Redis, dos corridas en paralelo, los dos disparadores; y de punta a punta con un Redis real. Dos pruebas de mutación manuales confirmaron que los tests detectan una regresión en el contador de IDs ausentes y en la comprobación de versión dentro de la transacción. Verificación contra la cátedra real: [evidencia](../evidencias/isla-1-sync-incremental.md).
+
+### Decisiones tomadas al implementar
+
+**La metadata se lee fuera de la transacción y la versión se verifica dentro.**
+- *Alternativa:* leer todo dentro de una transacción larga que abarque el plan.
+- *Por qué:* planificar es barato y puede quedar viejo; lo que no puede quedar viejo es aplicar la versión `v`. Dentro de la transacción de cada versión, con el candado tomado, se comprueba que `local_version` siga siendo `v - 1`. Si otra corrida avanzó, esta termina sin error y vuelve a planificar (hasta tres veces). El test de paralelismo lo prueba: la segunda corrida espera el candado, ve la versión aplicada, replanifica y termina en `Noop`.
+- *Costo:* una conexión de base ocupada durante unas pocas lecturas rápidas de Redis (timeout de comando de 5 s, 3 intentos), como el snapshot en el #15.
+- *Revisar:* si Redis se vuelve lento y la ocupación de conexiones molesta.
+
+**Qué escala a snapshot y qué deja un error.** *(Amplía la lista del issue.)*
+- Escalan, porque un snapshot lo arregla: falta `changes:{v}`, una clave foránea rota al aplicar una versión, un segundo ID ausente en la corrida, y datos de Redis que no se pueden interpretar (metadata, `changes` o entidades con JSON inválido o campos obligatorios ausentes).
+- No escalan, porque un snapshot no lo arregla: Redis o la cátedra caídos, credencial rechazada y fallas de base de datos. Quedan en `ERROR` con su código y la siguiente verificación reintenta. Un éxito posterior limpia el error.
+- *Por qué los datos inválidos escalan:* es el mismo criterio de "estado no verificable" que ya usa el ADR para la metadata; si Redis publica basura de forma permanente, la corrida siguiente ya es `Noop` porque el snapshot deja la versión vigente.
+- *Revisar:* si en la práctica un Redis inconsistente provocara snapshots repetidos.
+
+**El contador de IDs ausentes cuenta en toda la corrida, no en cada versión.** Con un ID ausente en la versión 2 y otro en la 3, la versión 2 queda aplicada (con su baja) y la 3 se revierte y pide snapshot, como pide el ADR ("en la misma corrida"). Un ID ausente se deshabilita sin tocar `updated_at` (decisión J). *Costo:* una corrida puede dejar aplicada una baja lógica y aun así terminar en snapshot; la copia es consistente en todo momento.
+
+**`Noop` también se registra en `sync_state`.** *(Era "Propuesto".)* La fila queda con `NOOP` y la hora de la verificación, y se limpia cualquier error anterior. *Costo:* una escritura corta con candado por intervalo (una por minuto). *Revisar:* si el endpoint de estado necesita distinguir "verificado hace poco" de "se aplicó algo": `last_result` y `last_sync_at` ya lo permiten.
+
+**La primera carga no depende de Redis.** *(Era "Propuesto".)* Con la base vacía se va directo al snapshot, que solo necesita REST: una Redis caída no impide armar la copia.
+
+**`SnapshotSyncException` pasa a `SyncException`, y un `SyncStateRecorder` compartido escribe errores y `NOOP`.** El nombre anterior quedó chico cuando la excepción empezó a salir también de la corrida incremental. El registro de errores (en otra transacción, ya revertida la principal y liberado el candado) se extrajo de `ApplySnapshot` para reutilizarlo; el comportamiento del #15 no cambia.
+
+**Código de error nuevo `INCREMENTAL_NO_APLICABLE`.** *(Era "Propuesto".)* Para fallas de aplicación que no son de datos ni de integración, por ejemplo la base. Los otros cuatro códigos se reutilizan.
+
+**Tope de versiones por corrida (`ATLAS_SYNC_MAX_VERSIONS_PER_RUN`, 1000) y verificación cada 60 s (`ATLAS_SYNC_CHECK_INTERVAL`).** *(Eran "Propuestos".)* El tope evita corridas sin fin si la cátedra publica muchísimas versiones; la siguiente verificación continúa. La verificación usa espera fija entre corridas (no tasa fija): nunca se superponen aunque una demore. *Revisar:* el intervalo con datos reales y cuando exista Kafka, que lo hará menos importante.
+
+**El arranque ahora siempre verifica, también con versión local.** Antes (#15) con versión local no hacía nada; ahora recoge lo que la cátedra publicó mientras la aplicación estaba apagada. Una falla en el arranque nunca tumba la aplicación: se captura cualquier excepción y queda registrado en `sync_state`.
+
+**La propiedad `atlas.sync.periodic-check` apaga la verificación y los tests de contexto la apagan junto con la de arranque.** Un test de contexto la enciende con un intervalo de 300 ms para probar el planificador de tareas real, y se cierra al terminar la clase (`@DirtiesContext`) para que no siga disparando contra un contenedor que se apaga.
+
+## Cambios al diseño original (#19)
+
+| Documento | Cambio | Motivo |
+|---|---|---|
+| Issue #19 | Los datos inválidos de `changes` y de las entidades también escalan a snapshot | Mismo criterio de estado no verificable que la metadata |
+| Issue #19 | `SnapshotSyncException` se renombra a `SyncException` y los errores se escriben desde `SyncStateRecorder` | La excepción ahora sirve a las dos corridas |
+| ADR 0003 | Sin cambios: el planificador, la aplicación incremental y las escaladas son los del ADR | |
+| Fila 5 del planificador | Sigue la lectura literal (`local < oldest` → snapshot) hasta la consulta 10 | La cátedra real solo publica la versión 1: sin más datos para decidir |
+
 ## Pendiente
 
-- Sincronización incremental (#19): planificador, aplicación de cambios, arranque y verificación periódica.
+- PR del #19 (sincronización incremental) a `dev` y cierre del issue a mano tras el merge.
 - Consumidor de Kafka (`CatalogUpdated`), seguridad base, búsqueda, estado, documentación y evidencias.
 - Consultas al docente que condicionan lo que sigue: 2 (alcance de "disponibilidad"), 3 (hexagonal liviana) y 10 (`oldest-available-version`); y D12 (RS256) para la seguridad base.
