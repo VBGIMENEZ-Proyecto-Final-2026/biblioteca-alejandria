@@ -15,7 +15,7 @@ Este documento registra cómo se fue construyendo el código, en el orden en que
 | 2026-10-11 | #12 · PR #14 | Cliente REST del snapshot, con reintentos y errores traducidos; verificado contra la cátedra real | Cerrado |
 | 2026-10-12 | #15 · PR #16 | Sincronización completa: aplicar el snapshot y arranque con base vacía | Cerrado |
 | 2026-10-12 | #17 · PR #18 | Cliente Redis de la cátedra: metadata, cambios y entidades; verificado contra la cátedra real | Cerrado |
-| 2026-10-12 | #19 · PR #20 | Sincronización incremental: planificador, aplicación de cambios por versión, arranque y verificación periódica | PR abierto |
+| 2026-10-12 | #19 · PR #20 | Sincronización incremental: planificador, aplicación de cambios por versión, arranque y verificación periódica | Cerrado |
 
 Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (cliente REST) → 58 (sincronización completa) → 86 (cliente Redis) → 133 (sincronización incremental).
 
@@ -261,6 +261,5 @@ Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (
 
 ## Pendiente
 
-- Merge del PR #20 (sincronización incremental) a `dev` y cierre del #19 a mano.
 - Consumidor de Kafka (`CatalogUpdated`), seguridad base, búsqueda, estado, documentación y evidencias.
 - Consultas al docente que condicionan lo que sigue: 2 (alcance de "disponibilidad"), 3 (hexagonal liviana) y 10 (`oldest-available-version`); y D12 (RS256) para la seguridad base.
