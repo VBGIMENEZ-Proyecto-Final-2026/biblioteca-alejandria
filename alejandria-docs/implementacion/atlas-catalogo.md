@@ -1,6 +1,6 @@
 # Implementación de atlas-catalogo · evolución
 
-**Componente:** atlas-catalogo · **Isla:** 1 · Eolia · **Actualizado:** 2026-10-11
+**Componente:** atlas-catalogo · **Isla:** 1 · Eolia · **Actualizado:** 2026-10-12
 
 Este documento registra cómo se fue construyendo el código, en el orden en que se hizo, y qué se decidió o se cambió respecto del diseño original (ADR [0002](../arquitectura/adr/0002-stack.md) y [0003](../arquitectura/adr/0003-arquitectura.md), [modelo de datos](../modelo-datos/atlas-catalogo.md)). Las decisiones de diseño siguen viviendo en los ADR; acá van las que aparecieron **al implementar**, con su porqué, el costo aceptado y cuándo conviene revisarlas. Se agrega una sección por cada issue de código que se cierra.
 
@@ -13,20 +13,22 @@ Este documento registra cómo se fue construyendo el código, en el orden en que
 | 2026-10-08 | #9 · PR #10 | Esqueleto Spring Boot 4.1, Java 25, Gradle; Flyway sin tablas; ArchUnit con reglas vacías | Cerrado |
 | 2026-10-11 | #11 · PR #13 | Migración `V1`, entidades JPA, repositorios con *upsert* y candado, tests contra PostgreSQL real | Cerrado |
 | 2026-10-11 | #12 · PR #14 | Cliente REST del snapshot, con reintentos y errores traducidos; verificado contra la cátedra real | Cerrado |
-| 2026-10-11 | #15 | Sincronización completa: aplicar el snapshot (issue redactado y abierto) | Abierto |
+| 2026-10-12 | #15 | Sincronización completa: aplicar el snapshot y arranque con base vacía (rama `feature/sync-completa-snapshot`) | Implementado, PR pendiente |
 
-Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (cliente REST).
+Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (cliente REST) → 58 (sincronización completa).
 
 ## Mapa del código frente al ADR 0003
 
 | Paquete (`ar.edu.um.atlas`) | Contenido hoy | Issue |
 |---|---|---|
 | `domain` | `ProfessionalCategory`, `Professional`, `WeeklySchedule`, `SyncState` y los enums `SyncStatus`, `SyncResult`, `SnapshotReason` | #11 |
-| `application.repository` | Un repositorio de Spring Data por entidad | #11 |
+| `application.repository` | Un repositorio de Spring Data por entidad; con `disableAllExcept` para las bajas | #11, #15 |
 | `application.port.out` | `CatalogSnapshotSource`, `CatalogSnapshot` y las excepciones `CatedraUnavailableException`, `CatedraCredentialRejectedException`, `CatedraInvalidResponseException` | #12 |
 | `adapters.out.rest` | Cliente declarativo `CatedraSnapshotApi`, DTO del JSON, conversión al modelo y `CatedraRestSnapshotSource` | #12 |
-| `config` | `CatedraProperties` y `CatedraRestConfig` | #12 |
-| `application` (casos de uso), `adapters.in`, `adapters.out.redis` | Todavía no existen | issues por abrir |
+| `application.sync` | Caso de uso `ApplySnapshot`, `SyncErrorCode` y `SnapshotSyncException` | #15 |
+| `adapters.in.startup` | `SnapshotOnStartup`: dispara el snapshot con la base vacía | #15 |
+| `config` | `CatedraProperties`, `CatedraRestConfig` y `SyncConfig` (reloj y disparador de arranque) | #12, #15 |
+| `adapters.in` (web, Kafka) y `adapters.out.redis` | Todavía no existen | issues por abrir |
 
 ## #11 · Migraciones y persistencia
 
@@ -122,19 +124,48 @@ Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (
 | Backlog | Ítem 7 sin login y con la decisión anotada | Ídem |
 | Issue #12 | El snapshot usa entidades del dominio; pruebas con servidor local | Ver decisiones del #12 |
 
-## Próximo: sincronización completa (#15)
+## #15 · Sincronización completa
 
-El 2026-10-11 se redactó el issue de sincronización completa y se abrió como #15. Es el primer consumidor del cliente REST (#12) y de `sync_state` (#11). Lo que el borrador propone y se confirma al implementar:
+**Qué quedó:** `ApplySnapshot.run(motivo)` en `application.sync`. Toma `sync_state` con `FOR UPDATE`, pide el snapshot al puerto y lo aplica con los *upserts* del #11 (categorías, profesionales y horarios, en ese orden). Lo que existe localmente y no viene se deshabilita con `UPDATE ... WHERE enabled AND id <> ALL(:ids)`, sin tocar `updated_at`. Al terminar bien, `sync_state` queda con `local_version` igual a la del snapshot, `IDLE`, resultado `SNAPSHOT`, el motivo y la hora, y sin error. Si algo falla, la transacción se revierte y el error se registra aparte con uno de cuatro códigos: `CATEDRA_NO_DISPONIBLE`, `CATEDRA_CREDENCIAL_RECHAZADA`, `CATEDRA_RESPUESTA_INVALIDA` y `SNAPSHOT_NO_APLICABLE` (clave foránea u otra falla al aplicar). Con la base vacía, `SnapshotOnStartup` lo ejecuta al terminar de arrancar con el motivo `BASE_VACIA`.
 
-- **Una sola transacción para todo, pedido a la cátedra incluido**, empezando por el candado. *Alternativa:* pedir el snapshot antes y abrir la transacción solo para aplicarlo. *Por qué la primera:* con dos corridas en paralelo, la segunda podría aplicar un snapshot más viejo después del más nuevo y hacer retroceder la copia. *Costo:* una conexión ocupada durante el pedido (peor caso, unos 91 s). *Revisar:* si el catálogo crece o aparecen más corridas concurrentes.
-- **El error se registra en otra transacción**, porque la principal se revierte y se llevaría el registro.
-- **No se escribe `RUNNING`:** el candado ya excluye otras corridas y nadie ve el cambio hasta el *commit*. Se decide en el issue de estado.
-- **Arranque con base vacía** en `adapters.in`, apagable por propiedad; si la cátedra falla, la aplicación arranca igual y deja el error registrado.
-- **Las bajas se deshabilitan sin tocar `updated_at`**, por la decisión J del modelo.
-- Primer uso real de los *setters* de `SyncState`: se decide ahí si pasan a métodos con intención.
+**Pruebas (18 nuevas):** inicialización, reconstrucción con versión menor y entidades que desaparecen, colección vacía (deshabilita todo), repetición idéntica, *rollback* completo con una clave foránea que falla después de aplicar categorías y profesionales, un código por cada falla del puerto, error que se limpia con un éxito posterior, dos corridas en paralelo (la segunda ni le pide el snapshot a la cátedra hasta que la primera termina), arranque con y sin versión local, cátedra caída en el arranque y el arranque completo con la propiedad encendida. La cátedra se simula con una implementación de prueba del puerto.
+
+### Decisiones tomadas al implementar
+
+**Una sola transacción con el pedido a la cátedra adentro** (como proponía el issue).
+- *Alternativa:* pedir el snapshot antes y abrir la transacción solo para aplicarlo.
+- *Por qué:* con dos corridas en paralelo, la segunda podría aplicar un snapshot más viejo después del más nuevo y hacer retroceder la copia. El test de paralelismo lo comprueba: la segunda corrida no hace su pedido hasta que la primera termina.
+- *Costo:* una conexión ocupada durante el pedido (peor caso del cliente, unos 91 s). El catálogo es chico y la corrida es exclusiva.
+- *Revisar:* si el catálogo crece o hay más corridas concurrentes.
+
+**El error se registra después de revertir, sin `REQUIRES_NEW`.** *(Cambia la nota del issue, que sugería `REQUIRES_NEW` o equivalente.)*
+- *Por qué:* `ApplySnapshot.run` no es transaccional; abre la transacción principal con `TransactionTemplate`, y cuando esta terminó (revertida y con el candado liberado) abre otra para escribir el error. Una transacción anidada que intentara tomar la misma fila mientras la principal la tiene bloqueada quedaría esperando para siempre.
+- *Costo:* si la base está caída, el error no se puede registrar; se deja en el log y se lanza igual la excepción original.
+
+**Mensajes de error fijos por código.** El texto que queda en `sync_state` sale del código, no de la excepción original: así nunca aparecen detalles internos, hosts ni el token. El detalle completo va al log.
+
+**Disparador en `ApplicationReadyEvent`, no en un `ApplicationRunner`.**
+- *Por qué:* el servidor ya está arriba y `/actuator/health` responde mientras se pide el snapshot, que puede tardar hasta un minuto y medio en el peor caso.
+- *Costo:* durante esa ventana la API (cuando exista) devolvería datos vacíos; hay que contemplarlo en el issue de estado.
+- *La comprobación "¿hay versión local?" se hace antes de tomar el candado.* Con una sola instancia no hay carrera; si hubiera otra, el peor caso es un snapshot repetido, que es inocuo.
+
+**La propiedad que lo apaga es `atlas.sync.on-startup` (variable `ATLAS_SYNC_ON_STARTUP`), encendida por defecto.** El bean `SnapshotOnStartup` se declara en `config` con `@ConditionalOnProperty`, así la clase del adaptador no conoce la propiedad. Los tests de contexto la apagan una sola vez en `src/test/resources/application.properties`, en lugar de hacerlo test por test.
+
+**`SyncState` tiene métodos con intención (`registrarSnapshotAplicado`, `registrarError`), pero se conservan los *setters*.** *(Adelantado en la nota del #11.)* Los *setters* los usa todavía el test de persistencia para armar estados arbitrarios; se pueden retirar cuando el issue de estado y manejo de errores sea el segundo consumidor.
+
+**`Clock` como bean.** La corrida pone la hora con un `Clock` inyectado (sistema en UTC), para poder fijarlo en tests futuros.
+
+**Bajas con un arreglo de IDs y `<> ALL`.** Con una lista vacía, `NOT IN ()` no es SQL válido; con un arreglo vacío, `id <> ALL('{}')` es verdadero para toda fila y deshabilita todo, así que no hace falta una consulta aparte. Lo cubre el test de colección vacía.
+
+## Cambios al diseño original (#15)
+
+| Documento | Cambio | Motivo |
+|---|---|---|
+| Issue #15 | El error se escribe en otra transacción abierta después del *rollback*, sin `REQUIRES_NEW` | Ver decisión arriba |
+| Issue #15 | Se conservan los *setters* de `SyncState` | Los usa el test de persistencia |
 
 ## Pendiente
 
-- Implementar el #15 (sincronización completa) en `feature/sync-completa-snapshot`.
+- PR del #15 a `dev` y cierre del issue a mano tras el merge.
 - Cliente Redis y sincronización incremental (planificador, Kafka, verificación periódica), seguridad base, búsqueda, estado, documentación y evidencias.
 - Consultas al docente que condicionan lo que sigue: 2 (alcance de "disponibilidad"), 3 (hexagonal liviana) y 10 (`oldest-available-version`); y D12 (RS256) para la seguridad base.
