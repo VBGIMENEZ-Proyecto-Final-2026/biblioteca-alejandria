@@ -16,8 +16,9 @@ Este documento registra cómo se fue construyendo el código, en el orden en que
 | 2026-10-12 | #15 · PR #16 | Sincronización completa: aplicar el snapshot y arranque con base vacía | Cerrado |
 | 2026-10-12 | #17 · PR #18 | Cliente Redis de la cátedra: metadata, cambios y entidades; verificado contra la cátedra real | Cerrado |
 | 2026-10-12 | #19 · PR #20 | Sincronización incremental: planificador, aplicación de cambios por versión, arranque y verificación periódica | Cerrado |
+| 2026-10-12 | #21 | Consumidor de Kafka del aviso `CatalogUpdated` como disparador de la sincronización (rama `feature/consumidor-kafka`) | Implementado, PR pendiente |
 
-Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (cliente REST) → 58 (sincronización completa) → 86 (cliente Redis) → 133 (sincronización incremental).
+Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (cliente REST) → 58 (sincronización completa) → 86 (cliente Redis) → 133 (sincronización incremental) → 161 (consumidor de Kafka).
 
 ## Mapa del código frente al ADR 0003
 
@@ -32,9 +33,10 @@ Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (
 | `application.sync.plan` | `SyncPlanner` (función pura) y `SyncPlan` | #19 |
 | `adapters.in.startup` | `SyncOnStartup`: corre la sincronización al terminar de arrancar | #15, #19 |
 | `adapters.in.schedule` | `PeriodicSyncCheck`: verificación periódica de la versión | #19 |
-| `config` | `CatedraProperties`, `CatedraRestConfig`, `SyncConfig` y `SyncProperties` (reloj, cotas y disparadores), `CatedraRedisProperties` y `CatedraRedisConfig` | #12, #15, #17, #19 |
+| `adapters.in.kafka` | `CatalogUpdatedListener`, `CatalogUpdatedParser` y `ResilientConsumerLifecycle`: el aviso `CatalogUpdated` como disparador | #21 |
+| `config` | `CatedraProperties`, `CatedraRestConfig`, `SyncConfig` y `SyncProperties` (reloj, cotas y disparadores), `CatedraRedisProperties`, `CatedraRedisConfig`, `CatedraKafkaProperties` y `CatedraKafkaConfig` | #12, #15, #17, #19, #21 |
 | `adapters.out.redis` | `CatedraRedisChangeSource`, `RedisJson` y `RedisEntityMapper` | #17 |
-| `adapters.in` (web, Kafka) | Todavía no existen | issues por abrir |
+| `adapters.in` (web) | Todavía no existe | issues por abrir |
 
 ## #11 · Migraciones y persistencia
 
@@ -259,7 +261,46 @@ Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (
 | ADR 0003 | Sin cambios: el planificador, la aplicación incremental y las escaladas son los del ADR | |
 | Fila 5 del planificador | Sigue la lectura literal (`local < oldest` → snapshot) hasta la consulta 10 | La cátedra real solo publica la versión 1: sin más datos para decidir |
 
+## #21 · Consumidor de Kafka
+
+**Qué quedó:** `CatalogUpdatedListener` en `adapters.in.kafka`, un listener de `spring-kafka` con confirmación manual (`MANUAL_IMMEDIATE`) que por cada `CatalogUpdated` ejecuta `SyncCatalog` con un disparo nuevo (`AVISO_DE_VERSION`) y confirma el *offset* solo después de que la corrida terminó. `CatalogUpdatedParser` interpreta el mensaje (solo exige `eventType` y `newVersion`, ignora el resto). `ResilientConsumerLifecycle` arranca el contenedor sin poder tumbar la aplicación. La configuración (`CatedraKafkaProperties` y `CatedraKafkaConfig`) usa las variables `CATEDRA_KAFKA_*`, se apaga con `atlas.sync.kafka.enabled` y no usa `spring.kafka.*`.
+
+**Pruebas (28 nuevas, entre ellas 9 del interpretador, 4 del ciclo de vida, 7 de las variables y 1 regla de ArchUnit):** con un Kafka real en un contenedor (una partición, como el topic de la cátedra) y PostgreSQL real, con REST y Redis simulados: evento nuevo (la copia avanza y el *offset* del grupo queda confirmado, comprobado contra el broker), duplicado, atrasado y adelantado (todos `Noop`), mensajes corruptos seguidos de uno válido, un corrupto como único mensaje, campos desconocidos con un esquema nuevo, y una falla de Redis con tres intentos, descarte con el *offset* confirmado y recuperación con el aviso siguiente; la aplicación completa arrancando con Kafka inaccesible; y variables faltantes. Dos mutaciones manuales mostraron que los tests detectan una regresión al no confirmar el *offset* tras agotar los reintentos y al no confirmar un mensaje corrupto. Verificación contra la cátedra real: [evidencia](../evidencias/isla-1-consumidor-kafka.md).
+
+### Decisiones tomadas al implementar
+
+**Si la sincronización falla: reintentos acotados y descarte con el *offset* confirmado.** *(Era "Propuesto".)*
+- *Alternativa:* no confirmar y seguir reintentando, que respeta literalmente "confirmar solo si persistió" pero puede dejar el consumidor trabado mientras Redis o la cátedra estén caídos.
+- *Por qué:* el evento no es la fuente de nada, solo un aviso. El error ya quedó en `sync_state` y la verificación periódica lo reintenta sola, así que descartar el mensaje no pierde información y el consumidor sigue sano. Son tres intentos en total, con espera de 1 s que se duplica.
+- *Costo:* un aviso que no se pudo procesar tarda hasta un intervalo de verificación (60 s) en aplicarse.
+- *Revisar:* si la cátedra empezara a publicar versiones con una frecuencia que hiciera pesado el intervalo.
+
+**El cliente de Kafka tumbaba el arranque si los servidores no se resuelven.** *(Hallazgo de las pruebas.)* Al construir el consumidor, el cliente lanza `No resolvable bootstrap urls` si el nombre no se resuelve, y Spring dejaba fallar el arranque entero. Puede pasar en producción (por ejemplo, con la red de la cátedra caída al arrancar). `ResilientConsumerLifecycle` envuelve el arranque del contenedor, lo registra sin servidores ni credenciales y reintenta en segundo plano cada 10 s hasta que arranca; si los servidores existen pero no contestan, el propio cliente reintenta conectarse. *Costo:* un hilo daemon y un poco de código propio. El contenedor se crea con `autoStartup = false` para que no lo arranque Spring por su cuenta.
+
+**Los *offsets* de Kafka son acumulativos, así que un mensaje descartado sin confirmar pasa desapercibido mientras llegue otro después.** Un test con un mensaje corrupto seguido de uno válido no detecta la omisión de la confirmación, porque la del válido cubre al anterior. Se agregó un test con un corrupto como único mensaje, que sí la detecta (comprobado con una mutación). Sin esa confirmación el *offset* quedaría atrás y al reiniciar se reprocesaría el corrupto: inocuo, pero deja un *lag* permanente en el grupo.
+
+**El valor del mensaje se lee como texto y se interpreta en el adaptador.** Un `ErrorHandlingDeserializer` sobre `StringDeserializer` evita que un mensaje no deserializable trabe el consumo; el JSON se lee con el mismo criterio que el cliente Redis (campos desconocidos ignorados). Solo se exigen `eventType = CatalogUpdated` y `newVersion`: `eventId` es opcional y solo sirve para el log, y `schemaVersion` no se valida porque el evento es un disparador y una versión de esquema nueva no cambia lo que hace. *Costo:* se aceptaría un `schemaVersion` desconocido; el contrato de la cátedra garantiza compatibilidad dentro de v1.
+
+**No se guarda una tabla de `eventId` procesados.** La comparación de versiones ya es la idempotencia: un duplicado, un atrasado y uno que adelanta la versión que Redis todavía no publicó terminan en `Noop` (probado). *Costo:* cada evento cuesta una lectura de Redis y una escritura corta de `NOOP`; una ráfaga de avisos no se agrupa. *Revisar:* si apareciera una ráfaga que lo justifique.
+
+**Confirmación inmediata y un mensaje por vez.** `MANUAL_IMMEDIATE` y `max.poll.records=1` hacen que el *offset* se confirme en el momento del `acknowledge`, ya con la copia persistida, y que una falla no arrastre a otros mensajes. `max.poll.interval.ms` en 10 minutos deja margen amplio sobre el peor caso de una corrida (un snapshot, unos 91 s) para que no haya un *rebalance* por demora. `allow.auto.create.topics=false`: un consumidor nunca debe crear el topic de la cátedra.
+
+**Grupo nuevo desde `latest`.** *(Era "Propuesto".)* El arranque ya sincroniza la copia, así que no hace falta reprocesar el historial del topic. Con un grupo que ya tiene *offset* se retoma desde ahí y se recuperan los avisos que llegaron con la aplicación apagada.
+
+**Propiedades propias y `KafkaAutoConfiguration` excluida.** Como con Redis, no se usa `spring.kafka.*`: los mensajes de error nombran la variable de entorno que falta y no se depende de lo que Boot arme por su cuenta. La autoconfiguración de Kafka se excluye para que no cree productores ni fábricas que este servicio no usa. `atlas.sync.kafka.enabled` (por defecto encendida) apaga todo y, con ella apagada, las tres variables no se exigen.
+
+**Sin autenticación.** La cátedra no documenta una para Kafka y la conexión real funcionó sin credenciales. *Revisar:* confirmarlo con el docente antes de la Isla 3.
+
+## Cambios al diseño original (#21)
+
+| Documento | Cambio | Motivo |
+|---|---|---|
+| Issue #21 | Se agregó el arranque resiliente (`ResilientConsumerLifecycle`) | Un nombre que no resuelve tumbaba el arranque; el issue exigía que arrancara sin Kafka |
+| Issue #21 | Test adicional de un mensaje corrupto como único mensaje | Los *offsets* acumulativos ocultaban la omisión de la confirmación |
+| ADR 0003 | Sin cambios: el consumidor es un disparador más, ack manual tras persistir y mensajes corruptos descartados | |
+
 ## Pendiente
 
-- Consumidor de Kafka (`CatalogUpdated`), seguridad base, búsqueda, estado, documentación y evidencias.
+- PR del #21 (consumidor de Kafka) a `dev` y cierre del issue a mano tras el merge.
+- Seguridad base, búsqueda, estado de la sincronización, documentación y evidencias.
 - Consultas al docente que condicionan lo que sigue: 2 (alcance de "disponibilidad"), 3 (hexagonal liviana) y 10 (`oldest-available-version`); y D12 (RS256) para la seguridad base.

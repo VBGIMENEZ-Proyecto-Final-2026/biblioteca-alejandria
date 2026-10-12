@@ -6,7 +6,7 @@
 
 **Fuera de alcance:** comunicación y contrato entre `atlas-catalogo` y `cronos-turnos`, registro y login de usuarios finales, turnos y reservas, y `hermes-app`.
 
-**Estado del backlog:** los issues de decisiones de diseño (1 a 3) y el esqueleto del proyecto (4) están hechos (issues #5, #6, #7 y #9 de `atlas-catalogo`). Migraciones y persistencia (6) está hecho (issue #11, PR #13). El cliente REST de la cátedra (7) también está hecho (issue #12, PR #14). La sincronización completa (8) también está hecha (issue #15, PR #16). El cliente Redis (9) también está hecho (issue #17, PR #18). La sincronización incremental (10) también está hecha (issue #19, PR #20). El resto de las tareas de la isla se agrega cuando sus decisiones estén justificadas. La numeración es la del backlog completo, por eso el 5 (seguridad base) todavía no aparece.
+**Estado del backlog:** los issues de decisiones de diseño (1 a 3) y el esqueleto del proyecto (4) están hechos (issues #5, #6, #7 y #9 de `atlas-catalogo`). Migraciones y persistencia (6) está hecho (issue #11, PR #13). El cliente REST de la cátedra (7) también está hecho (issue #12, PR #14). La sincronización completa (8) también está hecha (issue #15, PR #16). El cliente Redis (9) también está hecho (issue #17, PR #18). La sincronización incremental (10) también está hecha (issue #19, PR #20). El consumidor de Kafka (15) está implementado en su rama, a la espera del PR (issue #21). El resto de las tareas de la isla se agrega cuando sus decisiones estén justificadas. La numeración es la del backlog completo, por eso el 5 (seguridad base) todavía no aparece.
 
 Formato de cada issue: Componente `atlas`, descripción, criterios, referencias y dependencias (igual que `isla-0-itaca.md`). Las decisiones viven en este repo; los issues solo describen la tarea.
 
@@ -117,3 +117,15 @@ Mantener la copia local al día cuando la cátedra publica una versión nueva: u
 Estado: hecho (issue #19 y PR #20 de `atlas-catalogo`, mergeado a `dev` el 2026-10-12). Detalle de las decisiones en `implementacion/atlas-catalogo.md` y verificación en `evidencias/isla-1-sync-incremental.md`. La fila `local < oldest` del planificador depende de la consulta 10 al docente.
 Referencias: enunciado 6.2 y 8; ADR 0003; `catedra/INTEGRATION_REFERENCE-v2.md` (14, 16 y 18).
 Depende de: 8 y 9 (hechos). Bloquea: Kafka (15), estado y manejo de errores (12) y evidencias (14).
+
+### 15. [atlas] Consumidor de Kafka: aviso de versión nueva (`CatalogUpdated`)
+Consumir `CatalogUpdated` del topic de la cátedra como disparador del mismo caso de uso de sincronización (`SyncCatalog`): el evento avisa y la decisión sale de comparar versiones, nunca de `newVersion`. Confirmar el *offset* solo después de persistir y no bloquearse ante duplicados, eventos fuera de orden o mensajes corruptos.
+- [x] Un evento nuevo dispara la sincronización y el *offset* se confirma después de persistir.
+- [x] Un evento duplicado o fuera de orden termina en `Noop` y se confirma.
+- [x] Un mensaje corrupto no bloquea el consumidor.
+- [x] Una falla de la corrida se reintenta de forma acotada y, al agotarla, se descarta con el *offset* confirmado (la verificación periódica cubre el hueco).
+- [x] La aplicación arranca aunque Kafka no responda.
+- [x] Tests con Kafka real (Testcontainers).
+Estado: implementado en `feature/consumidor-kafka` (issue #21 de `atlas-catalogo`), PR pendiente. Detalle de las decisiones en `implementacion/atlas-catalogo.md` y verificación en `evidencias/isla-1-consumidor-kafka.md`.
+Referencias: `catedra/INTEGRATION_REFERENCE-v2.md` (15 y 16); ADR 0002 (D8) y 0003; enunciado 6.2 y 8.
+Depende de: 10 (hecho). Bloquea: evidencias (14).
