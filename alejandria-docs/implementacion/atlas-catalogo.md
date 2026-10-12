@@ -16,7 +16,7 @@ Este documento registra cómo se fue construyendo el código, en el orden en que
 | 2026-10-12 | #15 · PR #16 | Sincronización completa: aplicar el snapshot y arranque con base vacía | Cerrado |
 | 2026-10-12 | #17 · PR #18 | Cliente Redis de la cátedra: metadata, cambios y entidades; verificado contra la cátedra real | Cerrado |
 | 2026-10-12 | #19 · PR #20 | Sincronización incremental: planificador, aplicación de cambios por versión, arranque y verificación periódica | Cerrado |
-| 2026-10-12 | #21 | Consumidor de Kafka del aviso `CatalogUpdated` como disparador de la sincronización (rama `feature/consumidor-kafka`) | Implementado, PR pendiente |
+| 2026-10-12 | #21 · PR #22 | Consumidor de Kafka del aviso `CatalogUpdated` como disparador de la sincronización | PR abierto |
 
 Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (cliente REST) → 58 (sincronización completa) → 86 (cliente Redis) → 133 (sincronización incremental) → 161 (consumidor de Kafka).
 
@@ -301,6 +301,6 @@ Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (
 
 ## Pendiente
 
-- PR del #21 (consumidor de Kafka) a `dev` y cierre del issue a mano tras el merge.
+- Merge del PR #22 (consumidor de Kafka) a `dev` y cierre del #21 a mano.
 - Seguridad base, búsqueda, estado de la sincronización, documentación y evidencias.
 - Consultas al docente que condicionan lo que sigue: 2 (alcance de "disponibilidad"), 3 (hexagonal liviana) y 10 (`oldest-available-version`); y D12 (RS256) para la seguridad base.
