@@ -14,7 +14,7 @@ Este documento registra cómo se fue construyendo el código, en el orden en que
 | 2026-10-11 | #11 · PR #13 | Migración `V1`, entidades JPA, repositorios con *upsert* y candado, tests contra PostgreSQL real | Cerrado |
 | 2026-10-11 | #12 · PR #14 | Cliente REST del snapshot, con reintentos y errores traducidos; verificado contra la cátedra real | Cerrado |
 | 2026-10-12 | #15 · PR #16 | Sincronización completa: aplicar el snapshot y arranque con base vacía | Cerrado |
-| 2026-10-12 | #17 | Cliente Redis de la cátedra: metadata, cambios y entidades; verificado contra la cátedra real (rama `feature/cliente-redis-catedra`) | Implementado, PR pendiente |
+| 2026-10-12 | #17 · PR #18 | Cliente Redis de la cátedra: metadata, cambios y entidades; verificado contra la cátedra real | PR abierto |
 
 Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (cliente REST) → 58 (sincronización completa) → 86 (cliente Redis).
 
@@ -213,6 +213,6 @@ Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (
 
 ## Pendiente
 
-- PR del #17 a `dev` y cierre del issue a mano tras el merge.
+- Merge del PR #18 (cliente Redis) a `dev` y cierre del #17 a mano.
 - Sincronización incremental (planificador, Kafka, verificación periódica), seguridad base, búsqueda, estado, documentación y evidencias.
 - Consultas al docente que condicionan lo que sigue: 2 (alcance de "disponibilidad"), 3 (hexagonal liviana) y 10 (`oldest-available-version`); y D12 (RS256) para la seguridad base.

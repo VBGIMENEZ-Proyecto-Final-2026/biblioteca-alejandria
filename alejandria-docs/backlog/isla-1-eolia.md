@@ -6,7 +6,7 @@
 
 **Fuera de alcance:** comunicación y contrato entre `atlas-catalogo` y `cronos-turnos`, registro y login de usuarios finales, turnos y reservas, y `hermes-app`.
 
-**Estado del backlog:** los issues de decisiones de diseño (1 a 3) y el esqueleto del proyecto (4) están hechos (issues #5, #6, #7 y #9 de `atlas-catalogo`). Migraciones y persistencia (6) está hecho (issue #11, PR #13). El cliente REST de la cátedra (7) también está hecho (issue #12, PR #14). La sincronización completa (8) también está hecha (issue #15, PR #16). El cliente Redis (9) está implementado en su rama, a la espera del PR (issue #17). El resto de las tareas de la isla se agrega cuando sus decisiones estén justificadas. La numeración es la del backlog completo, por eso el 5 (seguridad base) todavía no aparece.
+**Estado del backlog:** los issues de decisiones de diseño (1 a 3) y el esqueleto del proyecto (4) están hechos (issues #5, #6, #7 y #9 de `atlas-catalogo`). Migraciones y persistencia (6) está hecho (issue #11, PR #13). El cliente REST de la cátedra (7) también está hecho (issue #12, PR #14). La sincronización completa (8) también está hecha (issue #15, PR #16). El cliente Redis (9) está implementado y con el PR abierto (issue #17, PR #18). El resto de las tareas de la isla se agrega cuando sus decisiones estén justificadas. La numeración es la del backlog completo, por eso el 5 (seguridad base) todavía no aparece.
 
 Formato de cada issue: Componente `atlas`, descripción, criterios, referencias y dependencias (igual que `isla-0-itaca.md`). Las decisiones viven en este repo; los issues solo describen la tarea.
 
@@ -102,6 +102,6 @@ Leer en Redis lo que la cátedra publica para la sincronización incremental: la
 - [x] Configuración validada al arrancar, con la contraseña fuera de logs y mensajes; reintentos acotados solo ante fallas transitorias.
 - [x] Errores traducidos a las excepciones del puerto (propuesto: las mismas tres del cliente REST).
 - [x] Tests contra Redis real (Testcontainers), incluido un usuario ACL equivalente al de la cátedra, y una verificación manual contra el Redis real.
-Estado: implementado en `feature/cliente-redis-catedra` (issue #17 de `atlas-catalogo`), PR pendiente. Detalle de las decisiones en `implementacion/atlas-catalogo.md` y verificación en `evidencias/isla-1-cliente-redis.md`.
+Estado: implementado, PR #18 abierto (issue #17 de `atlas-catalogo`). Detalle de las decisiones en `implementacion/atlas-catalogo.md` y verificación en `evidencias/isla-1-cliente-redis.md`.
 Referencias: `catedra/INTEGRATION_REFERENCE-v2.md` (14, 18.2 y 18.4); ADR 0002 (D9, D11 y D13) y 0003; enunciado 6.2 y 8.
 Depende de: 4 (hecho). No depende de 8. Bloquea: sincronización incremental (issue por abrir).
