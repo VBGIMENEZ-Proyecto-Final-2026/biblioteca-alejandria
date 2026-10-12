@@ -14,8 +14,9 @@ Este documento registra cómo se fue construyendo el código, en el orden en que
 | 2026-10-11 | #11 · PR #13 | Migración `V1`, entidades JPA, repositorios con *upsert* y candado, tests contra PostgreSQL real | Cerrado |
 | 2026-10-11 | #12 · PR #14 | Cliente REST del snapshot, con reintentos y errores traducidos; verificado contra la cátedra real | Cerrado |
 | 2026-10-12 | #15 · PR #16 | Sincronización completa: aplicar el snapshot y arranque con base vacía | Cerrado |
+| 2026-10-12 | #17 | Cliente Redis de la cátedra: metadata, cambios y entidades; verificado contra la cátedra real (rama `feature/cliente-redis-catedra`) | Implementado, PR pendiente |
 
-Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (cliente REST) → 58 (sincronización completa).
+Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (cliente REST) → 58 (sincronización completa) → 86 (cliente Redis).
 
 ## Mapa del código frente al ADR 0003
 
@@ -24,11 +25,13 @@ Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (
 | `domain` | `ProfessionalCategory`, `Professional`, `WeeklySchedule`, `SyncState` y los enums `SyncStatus`, `SyncResult`, `SnapshotReason` | #11 |
 | `application.repository` | Un repositorio de Spring Data por entidad; con `disableAllExcept` para las bajas | #11, #15 |
 | `application.port.out` | `CatalogSnapshotSource`, `CatalogSnapshot` y las excepciones `CatedraUnavailableException`, `CatedraCredentialRejectedException`, `CatedraInvalidResponseException` | #12 |
+| `application.port.out` | `CatalogChangeSource`, `CatalogMetadata` y `VersionChanges` (las excepciones son las mismas) | #17 |
 | `adapters.out.rest` | Cliente declarativo `CatedraSnapshotApi`, DTO del JSON, conversión al modelo y `CatedraRestSnapshotSource` | #12 |
 | `application.sync` | Caso de uso `ApplySnapshot`, `SyncErrorCode` y `SnapshotSyncException` | #15 |
 | `adapters.in.startup` | `SnapshotOnStartup`: dispara el snapshot con la base vacía | #15 |
-| `config` | `CatedraProperties`, `CatedraRestConfig` y `SyncConfig` (reloj y disparador de arranque) | #12, #15 |
-| `adapters.in` (web, Kafka) y `adapters.out.redis` | Todavía no existen | issues por abrir |
+| `config` | `CatedraProperties`, `CatedraRestConfig`, `SyncConfig` (reloj y disparador de arranque), `CatedraRedisProperties` y `CatedraRedisConfig` | #12, #15, #17 |
+| `adapters.out.redis` | `CatedraRedisChangeSource`, `RedisJson` y `RedisEntityMapper` | #17 |
+| `adapters.in` (web, Kafka) | Todavía no existen | issues por abrir |
 
 ## #11 · Migraciones y persistencia
 
@@ -164,7 +167,52 @@ Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (
 | Issue #15 | El error se escribe en otra transacción abierta después del *rollback*, sin `REQUIRES_NEW` | Ver decisión arriba |
 | Issue #15 | Se conservan los *setters* de `SyncState` | Los usa el test de persistencia |
 
+## #17 · Cliente Redis de la cátedra
+
+**Qué quedó:** el puerto `CatalogChangeSource` (`fetchMetadata`, `fetchChanges(versión)` y `fetchCategories`/`fetchProfessionals`/`fetchWeeklySchedules` por conjunto de IDs) y su adaptador `CatedraRedisChangeSource` con `StringRedisTemplate`. Solo lecturas puntuales sobre `catedra:sync:*` (`HGETALL` de la metadata, `GET` de `changes:{v}` y `HMGET` por lotes de 500 de los Hashes de entidades), con el modelo del dominio como salida. Lo que falta (metadata, `changes:{v}` o un ID) se devuelve vacío u omitido: decide quien llama. La configuración usa las variables `CATEDRA_REDIS_*` validadas al arrancar y reintentos acotados ante fallas de conexión.
+
+**Pruebas (28 nuevas, entre ellas 2 reglas de ArchUnit):** contra un Redis real en un contenedor, con un usuario ACL que solo puede leer `catedra:sync:*` (si el adaptador escribiera o leyera otra clave, Redis respondería `NOPERM`): metadata completa, ausente, sin fecha y con valores inválidos; cambios presentes, vacíos, ausentes, con versión que no coincide y con JSON o campos inválidos; entidades presentes y ausentes, campos desconocidos, horas con y sin segundos, más IDs que el tamaño del lote, JSON inválido e `id` distinto del field; Redis caído (tres intentos), contraseña incorrecta (sin reintentos y sin la contraseña en el mensaje) y usuario sin permisos. Verificación contra la cátedra real: [evidencia](../evidencias/isla-1-cliente-redis.md).
+
+### Decisiones tomadas al implementar
+
+**Las mismas tres excepciones del cliente REST, con `status` y `code` nulos.** *(Era "Propuesto" en el issue.)*
+- *Alternativa:* una jerarquía propia para Redis.
+- *Por qué:* quien sincroniza solo necesita saber si reintentar más tarde, rotar la credencial o avisar de un problema de contrato, y eso se traduce a los mismos códigos funcionales (`CATEDRA_NO_DISPONIBLE`, `CATEDRA_CREDENCIAL_RECHAZADA`, `CATEDRA_RESPUESTA_INVALIDA`) sin un caso más. Se ajustaron los comentarios de las clases, que hablaban solo de REST.
+- *Costo:* las excepciones nombran a "la cátedra" y no a Redis; el mensaje sí lo aclara.
+- *Revisar:* si el estado de sincronización necesitara distinguir qué fuente falló.
+
+**La metadata sale del Hash `catedra:sync:metadata` con una sola lectura, no de las dos claves String.** *(Era "Propuesto".)*
+- *Por qué:* `current` y `oldest` salen como un par consistente de un mismo comando y viene `publishedAt`. Las dos claves String se leerían con dos comandos y podrían pertenecer a versiones distintas si la cátedra publica en el medio.
+- *Costo:* si la cátedra dejara de publicar el Hash y solo mantuviera las claves String, el cliente vería "metadata ausente" y el planificador escalaría a snapshot (`NO_VERIFICABLE`); es seguro, pero no incremental.
+- *Revisar:* si ese caso apareciera en la cátedra real. Hoy el Hash existe y coincide con la versión REST.
+
+**Propiedades propias (`catedra.redis.*`) y conexión Lettuce armada a mano, sin `spring.data.redis.*`.** Así no se depende de variables que Boot tome por su cuenta y los mensajes de error nombran la variable de entorno que falta, como en el cliente REST. La conexión es perezosa: la aplicación arranca aunque Redis no responda.
+
+**El health de Redis se apaga y los repositorios de Redis también.** Con el starter en el classpath, Boot sumaría Redis a `/actuator/health`, y una caída de la cátedra marcaría al servicio como `DOWN` aunque pueda seguir sirviendo la copia local. Los repositorios de Spring Data Redis se desactivan porque todos los repositorios son de JPA. *Revisar:* si el endpoint de estado de la sincronización necesita mostrar la salud de Redis (no será por `/actuator/health`).
+
+**Credencial rechazada detectada por el texto del error de Redis (`WRONGPASS`, `NOAUTH`, `NOPERM`).**
+- *Por qué:* ni Lettuce ni Spring Data Redis tienen una excepción tipada para esas respuestas; llegan envueltas en excepciones de conexión o de comando. El test lo comprueba contra un Redis real con una contraseña incorrecta y con un usuario sin permisos.
+- *Costo:* depende del texto de las respuestas de Redis, que es estable desde Redis 6 (ACL) pero no es un contrato tipado.
+- *Revisar:* al actualizar Lettuce o Spring Data Redis, o si la cátedra cambia de motor.
+
+**Los JSON de Redis tienen sus propias clases de datos (`RedisJson`) en el adaptador, aunque se parecen a las del REST.** Las reglas de ArchUnit prohíben que un adaptador dependa de otro, y compartirlas exigiría subirlas a `application` (que no conoce Jackson). *Costo:* tres clases casi iguales. *Revisar:* si el contrato de Redis y el del snapshot divergieran, esta separación evita tocar dos lados.
+
+**Mapper y validación como en el REST:** se exigen los campos obligatorios al convertir y se ignoran los desconocidos; además, un `id` distinto del field o una `version` distinta de la pedida es dato inválido, porque indicaría un Redis inconsistente.
+
+**No hay TLS ni lectura de los Hashes completos.** La referencia no menciona TLS para Redis. La lectura completa de entidades (sin pasar por `changes`) queda afuera: el snapshot REST ya cubre la reconstrucción.
+
+**Variables nuevas.** `CATEDRA_REDIS_CONNECT_TIMEOUT` (3 s), `CATEDRA_REDIS_COMMAND_TIMEOUT` (5 s) y `CATEDRA_REDIS_MAX_RETRIES` (2) son opcionales. `CATEDRA_REDIS_HOST`, `_PORT`, `_USERNAME` y `_PASSWORD` ya figuraban en el `.env.example` y ahora son obligatorias: sin ellas la aplicación no arranca y el mensaje dice cuál falta.
+
+## Cambios al diseño original (#17)
+
+| Documento | Cambio | Motivo |
+|---|---|---|
+| Issue #17 | Las decisiones "Propuesto" (excepciones compartidas y metadata por Hash) quedaron como se propusieron | Ver decisiones arriba |
+| ADR 0003 | Sin cambios: el puerto se llama `CatalogChangeSource` y el adaptador vive en `adapters.out.redis`, como estaba previsto | |
+| Verificación | La cátedra real tiene `oldest = 1` y `changes:1` existe; dato para la consulta 10 | [Evidencia](../evidencias/isla-1-cliente-redis.md) |
+
 ## Pendiente
 
-- Cliente Redis y sincronización incremental (planificador, Kafka, verificación periódica), seguridad base, búsqueda, estado, documentación y evidencias.
+- PR del #17 a `dev` y cierre del issue a mano tras el merge.
+- Sincronización incremental (planificador, Kafka, verificación periódica), seguridad base, búsqueda, estado, documentación y evidencias.
 - Consultas al docente que condicionan lo que sigue: 2 (alcance de "disponibilidad"), 3 (hexagonal liviana) y 10 (`oldest-available-version`); y D12 (RS256) para la seguridad base.
