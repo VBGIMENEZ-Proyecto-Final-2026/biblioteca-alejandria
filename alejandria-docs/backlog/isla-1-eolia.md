@@ -6,7 +6,7 @@
 
 **Fuera de alcance:** comunicación y contrato entre `atlas-catalogo` y `cronos-turnos`, registro y login de usuarios finales, turnos y reservas, y `hermes-app`.
 
-**Estado del backlog:** los issues de decisiones de diseño (1 a 3) y el esqueleto del proyecto (4) están hechos (issues #5, #6, #7 y #9 de `atlas-catalogo`). Migraciones y persistencia (6) está hecho (issue #11, PR #13). El cliente REST de la cátedra (7) también está hecho (issue #12, PR #14). La sincronización completa (8) está implementada en su rama, a la espera del PR (issue #15). El resto de las tareas de la isla se agrega cuando sus decisiones estén justificadas. La numeración es la del backlog completo, por eso el 5 (seguridad base) todavía no aparece.
+**Estado del backlog:** los issues de decisiones de diseño (1 a 3) y el esqueleto del proyecto (4) están hechos (issues #5, #6, #7 y #9 de `atlas-catalogo`). Migraciones y persistencia (6) está hecho (issue #11, PR #13). El cliente REST de la cátedra (7) también está hecho (issue #12, PR #14). La sincronización completa (8) también está hecha (issue #15, PR #16). El resto de las tareas de la isla se agrega cuando sus decisiones estén justificadas. La numeración es la del backlog completo, por eso el 5 (seguridad base) todavía no aparece.
 
 Formato de cada issue: Componente `atlas`, descripción, criterios, referencias y dependencias (igual que `isla-0-itaca.md`). Las decisiones viven en este repo; los issues solo describen la tarea.
 
@@ -91,6 +91,6 @@ Inicializar o reconstruir la copia local desde el snapshot de forma transacciona
 - [x] La versión local registrada coincide con los datos almacenados; lo que no viene en el snapshot se deshabilita, nunca se borra.
 - [x] Repetir el snapshot no duplica datos.
 - [x] Tests de integración contra PostgreSQL real: inicialización, reconstrucción, repetición, falla a mitad de camino y paralelismo.
-Estado: implementado en `feature/sync-completa-snapshot` (issue #15 de `atlas-catalogo`), PR pendiente. Detalle de las decisiones en `implementacion/atlas-catalogo.md`.
+Estado: hecho (issue #15 y PR #16 de `atlas-catalogo`, mergeado a `dev` el 2026-10-12). Detalle de las decisiones en `implementacion/atlas-catalogo.md`.
 Referencias: enunciado 6.1 y 8; ADR 0003 (aplicación del snapshot, bajas y exclusión mutua); modelo de datos; `catedra/INTEGRATION_REFERENCE-v2.md` (7 y 18).
 Depende de: 6 y 7 (hechos). Bloquea: sincronización incremental, búsqueda y estado (issues por abrir).

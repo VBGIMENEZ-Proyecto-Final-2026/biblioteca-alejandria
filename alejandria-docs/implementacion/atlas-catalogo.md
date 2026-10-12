@@ -13,7 +13,7 @@ Este documento registra cómo se fue construyendo el código, en el orden en que
 | 2026-10-08 | #9 · PR #10 | Esqueleto Spring Boot 4.1, Java 25, Gradle; Flyway sin tablas; ArchUnit con reglas vacías | Cerrado |
 | 2026-10-11 | #11 · PR #13 | Migración `V1`, entidades JPA, repositorios con *upsert* y candado, tests contra PostgreSQL real | Cerrado |
 | 2026-10-11 | #12 · PR #14 | Cliente REST del snapshot, con reintentos y errores traducidos; verificado contra la cátedra real | Cerrado |
-| 2026-10-12 | #15 | Sincronización completa: aplicar el snapshot y arranque con base vacía (rama `feature/sync-completa-snapshot`) | Implementado, PR pendiente |
+| 2026-10-12 | #15 · PR #16 | Sincronización completa: aplicar el snapshot y arranque con base vacía | Cerrado |
 
 Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (cliente REST) → 58 (sincronización completa).
 
@@ -166,6 +166,5 @@ Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (
 
 ## Pendiente
 
-- PR del #15 a `dev` y cierre del issue a mano tras el merge.
 - Cliente Redis y sincronización incremental (planificador, Kafka, verificación periódica), seguridad base, búsqueda, estado, documentación y evidencias.
 - Consultas al docente que condicionan lo que sigue: 2 (alcance de "disponibilidad"), 3 (hexagonal liviana) y 10 (`oldest-available-version`); y D12 (RS256) para la seguridad base.
