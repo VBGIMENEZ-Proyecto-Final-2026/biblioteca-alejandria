@@ -1,6 +1,6 @@
 # Implementación de atlas-catalogo · evolución
 
-**Componente:** atlas-catalogo · **Isla:** 1 · Eolia · **Actualizado:** 2026-10-21
+**Componente:** atlas-catalogo · **Isla:** 1 · Eolia · **Actualizado:** 2026-11-02
 
 Este documento registra cómo se fue construyendo el código, en el orden en que se hizo, y qué se decidió o se cambió respecto del diseño original (ADR [0002](../arquitectura/adr/0002-stack.md) y [0003](../arquitectura/adr/0003-arquitectura.md), [modelo de datos](../modelo-datos/atlas-catalogo.md)). Las decisiones de diseño siguen viviendo en los ADR; acá van las que aparecieron **al implementar**, con su porqué, el costo aceptado y cuándo conviene revisarlas. Se agrega una sección por cada issue de código que se cierra.
 
@@ -25,6 +25,9 @@ Este documento registra cómo se fue construyendo el código, en el orden en que
 | 2026-10-21 | #29 · PR #25 | Estado de la sincronización (`GET /api/sync/status`, apagado por defecto hasta el ítem 5) y pruebas de falla y recuperación | Cerrado |
 | 2026-11-01 | #31 · PR #32 | Búsqueda de profesionales sobre la copia local: categoría, nombre, habilitado y disponibilidad, detalle y categorías | Hecho; protegida por el ítem 5 (PR #34) |
 | 2026-11-01 | #33 · PR #34 | Seguridad base: JWT RS256 de `cronos-turnos` validado con su clave pública, roles por ruta, `401` y `403` como `problem+json` y CORS | Mergeado a `dev` el 2026-11-01; el issue sigue abierto hasta fijar los claims con `cronos-turnos` |
+| 2026-11-01 | #35 · PR #36 | `scripts/dev-token.sh` emitía un `iat` posterior a `exp` en un token que nace vencido; se corrige | Mergeado a `dev` el 2026-11-02; issue cerrado |
+| 2026-11-02 | #37 · PR #38 | Contenedores: `Dockerfile` de dos etapas, servicio `app` en el `compose.yaml` bajo el perfil `app`, HTTPS documentado y tres comentarios corregidos (bajas: requisito M3, no decisión C) | Mergeado a `dev` el 2026-11-02; issue cerrado |
+| 2026-11-02 | Sin issue | Contrato de atlas con sus consumidores ([`contratos/atlas-catalogo-api.md`](../contratos/atlas-catalogo-api.md)) y evidencia de la prueba en contenedores | Hecho |
 
 Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (cliente REST) → 58 (sincronización completa) → 86 (cliente Redis) → 133 (sincronización incremental) → 161 (consumidor de Kafka) → 199 (Kafka con seguridad configurable, disponibilidad y estado, ya en `dev`) → 248 (búsqueda) → 320 (seguridad base).
 
@@ -44,7 +47,10 @@ Tests automatizados tras cada paso: 5 (esqueleto) → 19 (persistencia) → 40 (
 | `adapters.in.kafka` | `CatalogUpdatedListener`, `CatalogUpdatedParser` y `ResilientConsumerLifecycle`: el aviso `CatalogUpdated` como disparador | #21 |
 | `config` | `CatedraProperties`, `CatedraRestConfig`, `SyncConfig` y `SyncProperties` (reloj, cotas y disparadores), `CatedraRedisProperties`, `CatedraRedisConfig`, `CatedraKafkaProperties` y `CatedraKafkaConfig` | #12, #15, #17, #19, #21 |
 | `adapters.out.redis` | `CatedraRedisChangeSource`, `RedisJson` y `RedisEntityMapper` | #17 |
-| `adapters.in` (web) | Todavía no existe | issues por abrir |
+| `adapters.in.web` | `ProfessionalsController` (búsqueda, detalle y categorías), `SyncStatusController` (estado de la sincronización) y sus manejadores de errores | #29, #31 |
+| `adapters.in.security` | `SecurityProblemHandler`: `401 NO_AUTENTICADO` y `403 SIN_PERMISO` como `problem+json` | #33 |
+| `config` (seguridad) | `SecurityConfig`, `SecurityProperties` y `JwtPublicKeys` | #33 |
+| Raíz del repositorio | `Dockerfile`, `.dockerignore` y el servicio `app` del `compose.yaml` | #37 |
 
 ## #11 · Migraciones y persistencia
 
@@ -600,9 +606,69 @@ Se probó contra PostgreSQL real con datos armados en cada test y, además, cont
 
 Se probó con la aplicación completa y firmas RS256 reales (los pares los genera el test), y con la aplicación corriendo contra una base temporal y tokens firmados con `scripts/dev-token.sh`: ver [la evidencia](../evidencias/isla-1-seguridad.md). **No se probó contra un token real de `cronos-turnos`**, porque todavía no existe: los claims `sub` y `auth` son una propuesta. No se validan `iss` ni `aud`, no hay revocación ni límite de pedidos, y el canal entre la app y atlas no va cifrado (ver la [seguridad](../arquitectura/seguridad-atlas-catalogo.md)).
 
+## Contenedores · Dockerfile, compose y HTTPS
+
+**Qué se hizo.** atlas se puede levantar entero con Docker Compose, como pide el enunciado (sección 3), y se documenta cómo cifrar el canal (sección 9). Issue #37 y PR #38 de `atlas-catalogo` (mergeado a `dev` el 2026-11-02). Evidencia en [`isla-1-contenedores.md`](../evidencias/isla-1-contenedores.md).
+
+**Qué hay en el código.**
+- `Dockerfile`: dos etapas. La primera compila con JDK 25 (copia antes `gradlew` y los `build.gradle.kts` para reutilizar la capa de dependencias) y arma el ejecutable con `bootJar -x test`. La segunda ejecuta con un JRE 25, instala `curl` solo para el healthcheck y corre con un usuario sin privilegios.
+- `.dockerignore`: deja afuera `.env`, `*.pem`, `*.key`, `*.jks`, `.git` y `build`. La imagen no lleva secretos.
+- `compose.yaml`: el servicio `app` bajo `profiles: ["app"]`. Espera a que la base esté `healthy`, lee el mismo `.env`, pisa `ATLAS_DB_HOST=db` y `ATLAS_DB_PORT=5432`, monta la clave pública JWT en `/run/secrets/jwt-public.pem` (solo lectura) y publica el puerto 8080 únicamente en `127.0.0.1`.
+- `README.md`: la sección "Todo en contenedores" y la viñeta "Cifrado del canal (TLS)" de "Seguridad".
+- `.env.example` y `.gitignore`: las variables de HTTPS y `*.p12`.
+- Tres comentarios de los repositorios que citaban la "decisión C" para las bajas lógicas ahora citan el requisito M3 (la decisión C es "estado del sync en una sola fila").
+
+**Pruebas.** No hay lógica nueva, así que no se agregaron tests: la suite completa se volvió a correr y da 320, 0 fallos. Lo nuevo se verificó con la aplicación real en contenedores y con HTTPS, a mano (ver la evidencia).
+
+### Decisiones tomadas al implementar
+
+**La aplicación es un servicio del compose bajo un perfil, no siempre encendido.**
+- *Alternativa:* agregar `app` al compose sin perfil, para que `docker compose up -d` levante todo.
+- *Por qué:* el flujo de desarrollo del README es "base en contenedor y aplicación con `bootRun`". Con la app siempre encendida, el puerto 8080 estaría ocupado y `up -d` fallaría para quien no tenga la clave pública configurada.
+- *Costo:* levantar todo exige un comando distinto (`docker compose --profile app up -d --build`), y con el perfil activo no se puede correr `bootRun` a la vez.
+
+**Imagen de dos etapas con un `Dockerfile` explícito.**
+- *Alternativas:* una sola imagen con el JDK, o `./gradlew bootBuildImage` (Buildpacks).
+- *Por qué:* la imagen final no lleva compilador ni código fuente, y un `Dockerfile` corto se lee y se explica en la defensa; Buildpacks lo esconde detrás de una descarga grande.
+- *Costo:* la primera construcción tarda unos tres minutos (descarga las dependencias de Gradle), y la imagen de ejecución instala `curl` con `apt-get`, que necesita red al construir.
+- *Revisar:* si se quisiera fijar las imágenes base por *digest* para tener construcciones reproducibles.
+
+**La configuración entra por el mismo `.env`, no se copia a la imagen.**
+- *Alternativas:* hornear los valores en la imagen o usar *secrets* de Compose.
+- *Por qué:* la imagen no lleva secretos (ADR 0001) y quien ya tiene su `.env` para `bootRun` no configura nada más. El compose solo pisa lo que cambia dentro de la red de Compose.
+- *Costo:* el servicio `app` depende de que exista el `.env`; los valores `localhost` de `ATLAS_DB_HOST` y `ATLAS_DB_PORT` del `.env` no sirven dentro del contenedor y por eso se pisan en el compose.
+
+**La clave pública se monta como archivo, con `/dev/null` como valor por defecto.**
+- *Alternativa:* exigir la variable con `${ATLAS_JWT_PUBLIC_KEY_LOCATION:?...}`.
+- *Por qué:* Compose interpola las variables aun con el perfil apagado, así que una variable obligatoria rompía `docker compose up -d` para quien solo quiere la base (se vio al probar).
+- *Costo:* sin la variable el contenedor arranca y la aplicación se niega a iniciar con el mensaje de clave pública inválida, en lugar de que Compose avise antes. Solo sirve la clave en archivo: la variante con el PEM dentro de la variable no aplica al contenedor.
+
+**El montaje de la clave lleva `:z`.** En hosts con SELinux (Fedora) el contenedor no podía leer el archivo montado. El `:z` etiqueta el `.pem` público del host para que sea legible; donde no hay SELinux se ignora. *Costo:* cambia la etiqueta SELinux de ese archivo en el host.
+
+**El proceso corre sin privilegios y los puertos se publican solo en `127.0.0.1`.** Igual que la base: ni la aplicación ni la base se exponen a la red ZeroTier de la cátedra. *Costo:* para llegar desde otra máquina hay que cambiar el compose a propósito.
+
+**HTTPS se activa con las variables estándar de Spring Boot, sin código propio.**
+- *Alternativas:* un perfil `tls` con su propio YAML, o terminar TLS en un proxy inverso.
+- *Por qué:* `SERVER_SSL_KEY_STORE`, `SERVER_SSL_KEY_STORE_PASSWORD` y `SERVER_SSL_KEY_STORE_TYPE` ya hacen todo, no agregan código que mantener y se pudieron probar el mismo día.
+- *Costo:* no hay un test automatizado; el certificado de prueba es autofirmado; el almacén de claves y su contraseña son un secreto más (`*.p12` y `*.jks` están en `.gitignore`); y el compose no monta el almacén, hay que hacerlo a mano.
+- *Revisar:* cuando exista un destino fuera de la máquina local, que es donde el cifrado deja de ser opcional.
+
+### Qué se descubrió al probar
+
+- **SELinux bloqueaba el montaje de la clave.** La aplicación no arrancaba con "No existe el archivo de la clave pública JWT" aunque el archivo existía en el host. Se resolvió con `:z`.
+- **La imagen del JRE no trae `curl`.** El primer healthcheck dejó el contenedor `unhealthy` mientras la aplicación estaba sana. Se instaló `curl` en la imagen.
+- **Una variable obligatoria rompía el compose sin el perfil.** Se vio al validar la configuración y llevó a usar `/dev/null` como valor por defecto.
+- **La sincronización de arranque falló y la aplicación siguió arriba.** En el primer arranque en contenedor, Redis de la cátedra no respondió (`CATEDRA_NO_DISPONIBLE`) y atlas quedó funcionando con lo que ya tenía, como está diseñado. No se investigó por qué la primera conexión falló.
+- **`Closes #` no cierra el issue de un PR a `dev`.** GitHub solo lo hace al entrar a la rama por defecto del repositorio (`main`). Los issues se cierran a mano.
+
+### Límites de lo probado
+
+Se construyó y se corrió la imagen con Docker en una máquina Fedora, con un par de claves de desarrollo y el catálogo real de la cátedra (solo lectura): ver [la evidencia](../evidencias/isla-1-contenedores.md). **No se probó con un token real de `cronos-turnos`**, ni el perfil `kafka-sasl` dentro del contenedor, ni los dos servicios juntos en un mismo compose (el motor único de base de datos sigue siendo un objetivo). HTTPS se verificó a mano. La imagen no se publica en ningún registro ni se le pasó un análisis de vulnerabilidades. Los tests no corren dentro de la imagen: necesitan Testcontainers y se corren con `./gradlew build`.
+
 ## Pendiente
 
-- Cerrar a mano el issue #31 (la búsqueda cumple todos sus criterios desde el PR #34). El #33 queda abierto hasta fijar los claims con `cronos-turnos`.
-- Un endpoint de lectura para `cronos-turnos` (horario semanal vigente de un profesional), con su contrato documentado y protegido con este mismo esquema; el Dockerfile y la app dentro del compose; las evidencias (ítem 14) y la documentación final (ítem 13).
-- Consultas al docente que condicionan lo que sigue: 1 (autenticación entre servicios, resuelta localmente en el ADR 0004), 2 (alcance de "disponibilidad"), 3 (hexagonal liviana) y 10 (`oldest-available-version`, cerrada localmente el 2026-10-21).
-- Confirmar con el docente las consultas 2, 4, 10 y 11, resueltas localmente.
+- El issue #33 queda abierto hasta fijar los claims (`sub` y `auth`) con `cronos-turnos`, cuando exista y emita tokens reales.
+- Un test automatizado de HTTPS, y la validación de `iss` y `aud` del token, si el docente o `cronos-turnos` lo piden.
+- Probar el motor único de base de datos con los dos servicios; actualizar los `compose.yaml` y esta documentación si se adopta.
+- Las evidencias de la sincronización incremental real y del aviso de Kafka real, que dependen de que la cátedra publique una versión mayor a 1.
+- Consultas al docente que condicionan lo que sigue: 1 (autenticación entre servicios, resuelta localmente en el ADR 0004), 2 (alcance de "disponibilidad"), 3 (hexagonal liviana), 4 (Flyway), 10 (`oldest-available-version`) y 11 (Kafka sin autenticación), todas resueltas localmente y a confirmar con el docente.
