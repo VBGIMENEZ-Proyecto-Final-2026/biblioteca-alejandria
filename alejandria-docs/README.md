@@ -52,6 +52,7 @@ Cada repo de código tiene en su README un diagrama más cercano a su responsabi
 | [`arquitectura/sincronizacion-atlas-catalogo.md`](arquitectura/sincronizacion-atlas-catalogo.md) | Cómo funciona la sincronización, idempotencia y recuperación |
 | [`arquitectura/seguridad-atlas-catalogo.md`](arquitectura/seguridad-atlas-catalogo.md) | Decisiones, estado y limitaciones de seguridad |
 | [`modelo-datos/atlas-catalogo.md`](modelo-datos/atlas-catalogo.md) | Modelo de datos y decisiones A a L |
+| [`contratos/atlas-catalogo-api.md`](contratos/atlas-catalogo-api.md) | Contrato con `cronos-turnos` y `hermes-app`: operaciones, DTO, autenticación y errores |
 | [`implementacion/atlas-catalogo.md`](implementacion/atlas-catalogo.md) | Evolución del código y decisiones al implementar |
 | [`evidencias/`](evidencias/) | Verificaciones contra la cátedra real, sin secretos |
 
