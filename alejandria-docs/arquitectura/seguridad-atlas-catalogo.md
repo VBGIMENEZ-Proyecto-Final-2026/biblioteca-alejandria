@@ -56,7 +56,7 @@ Lo que corresponde a atlas. Lo demás es de `cronos-turnos`, que emite los token
 
 ## Lo que falta
 
-- **Fijar los claims con `cronos-turnos`.** Atlas espera `sub` con el usuario y `auth` con las autoridades (como JHipster), y el nombre del claim es configurable. Es una propuesta de atlas que cronos todavía no ha confirmado.
+- **Fijar los claims con `cronos-turnos`.** Atlas espera `sub` con el usuario y `auth` con las autoridades (como JHipster), y el nombre del claim es configurable. Cronos ya los emite así (2026-11-19, [contrato](../contratos/cronos-turnos-api.md)); falta la prueba cruzada con atlas corriendo.
 - **Confirmar con el docente la autenticación entre servicios** (consulta 1: JWT propagado o técnico). Si pide un JWT técnico, cambia la llamada entre servicios, no la validación de usuario.
 - **Cifrar el canal entre la app y los servicios** (ver las limitaciones).
 - **Un endpoint de lectura para `cronos-turnos`** (horario semanal vigente), con su contrato documentado, protegido con este mismo esquema.

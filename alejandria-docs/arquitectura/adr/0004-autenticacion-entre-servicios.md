@@ -50,7 +50,7 @@ El argumento central es que **atlas no debe poder forjar tokens de usuario**. Co
 - **atlas (hecho, ítem 5):** servidor de recursos con la **clave pública** RSA. Valida firma RS256 (rechaza `HS256`, `none` y otros algoritmos), vigencia con tolerancia de reloj y la presencia de `sub` y `exp`. No tiene clave privada ni usuarios.
 - **cronos (pendiente):** emite con la clave privada (RS256), valida sus propios endpoints y reenvía el `Authorization` del usuario a atlas con un interceptor del cliente HTTP.
 - **app:** guarda un solo token y lo manda a los dos servicios.
-- **Claims** (propuesta, a fijar con cronos): `sub` con el usuario y `auth` con las autoridades, como el token de JHipster. Así sirve igual si cronos usa JHipster o no, y el enunciado pide un modelo de usuario compatible con el de JHipster. Atlas acepta las autoridades como texto con espacios o como lista, y el nombre del claim es configurable.
+- **Claims** (implementados en cronos el 2026-11-19, etapa 3 del issue #7; falta la prueba cruzada con atlas): `sub` con el usuario y `auth` con las autoridades, como el token de JHipster. Así sirve igual si cronos usa JHipster o no, y el enunciado pide un modelo de usuario compatible con el de JHipster. Atlas acepta las autoridades como texto con espacios o como lista, y el nombre del claim es configurable.
 - **La clave pública se carga de un archivo o de una variable, no por JWKS.** Con JWKS atlas dependería de que cronos esté levantado para validar tokens, y eso contradice la independencia de los servicios. Costo: rotar la clave exige reiniciar atlas, aceptable acá.
 - **Sin clave, atlas no arranca.** Fallar rápido es más seguro que arrancar con la API abierta o rechazándolo todo sin explicación.
 
@@ -59,7 +59,7 @@ El argumento central es que **atlas no debe poder forjar tokens de usuario**. Co
 - **Atlas depende de la clave pública de cronos.** Mientras cronos no exista, se prueba con un par de claves de desarrollo (`scripts/dev-token.sh`) y con claves generadas en los tests.
 - **Cualquier usuario autenticado puede llamar a lo que atlas expone con `ROLE_USER`**, incluido un futuro endpoint de horarios para cronos. Es el mismo dato que ya devuelve la búsqueda. Si eso dejara de ser cierto, se agrega una autoridad específica en el claim y se exige en esa ruta.
 - **Límites aceptados:** no se valida el emisor (`iss`) ni la audiencia (`aud`); no hay revocación de tokens, que dependen de su vencimiento; la comunicación entre la app y los servicios no está cifrada por atlas (ver [seguridad](../seguridad-atlas-catalogo.md)).
-- **Cronos debe emitir RS256.** Si se usa JHipster y su firma por defecto fuera simétrica, habría que reemplazar el codificador y el decodificador (a verificar, ver más abajo).
+- **Cronos debe emitir RS256.** Como cronos no usa JHipster ([ADR 0005](0005-usuarios-y-jwt-en-cronos-sin-jhipster.md)), el codificador RSA se escribe directamente con Spring Security y no hay que reemplazar nada generado.
 
 ## Cuándo revisar
 
@@ -71,8 +71,8 @@ El argumento central es que **atlas no debe poder forjar tokens de usuario**. Co
 ## Decisiones que condicionan esta
 
 - **Los usuarios, el registro, el inicio de sesión y la emisión del JWT viven en cronos-turnos** (2026-11-01). Atlas solo valida. Es lo natural: cronos es dueño de las reservas por usuario (enunciado 4.2) y mantiene la identidad fuera del catálogo.
-- **JHipster en cronos sigue abierto.** No afecta a esta decisión, pero sí a su costo. Según las notas de la versión 9.3.0, JHipster genera sobre Spring Boot 4.1, igual que atlas. Lo que **no está verificado** y habría que comprobar con un proyecto descartable es si firma con secreto compartido por defecto (lo que obligaría a pasar a RS256), si deja inactivo al usuario recién registrado (el enunciado lo exige activo) y qué herramienta de migraciones usa. Se resolverá en un ADR propio.
+- **Cronos no usa JHipster** (decidido el 2026-11-19 en el [ADR 0005](0005-usuarios-y-jwt-en-cronos-sin-jhipster.md)): los usuarios, el registro, el inicio de sesión y la emisión del JWT RS256 se escriben con Spring Security, con un contrato de usuario compatible con el de JHipster. No se hizo el spike; lo que se decía acá de JHipster (firma simétrica por defecto, registro inactivo, Liquibase) sigue sin verificarse con un proyecto generado y solo vuelve a importar si se reabre esa decisión.
 
 ## Referencias
 
-Enunciado 3.2, 4.2, 9 y 10; [ADR 0002](0002-stack.md) (D12); consultas 1, 5, 6 y 7 al docente.
+Enunciado 3.2, 4.2, 9 y 10; [ADR 0002](0002-stack.md) (D12); [ADR 0005](0005-usuarios-y-jwt-en-cronos-sin-jhipster.md) (usuarios y JWT en cronos); consultas 1, 5, 6 y 7 al docente.

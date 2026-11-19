@@ -210,4 +210,4 @@ Para que el contrato funcione, `cronos-turnos` tiene que:
 3. no guardar una réplica del catálogo;
 4. tratar `503` o la falta de respuesta como "no iniciar la operación" y `404` como "referencia inexistente".
 
-Los claims exactos que cronos va a emitir están sin confirmar hasta que exista el esqueleto de cronos (issue #33 de atlas); si cambian, se actualiza la sección 2.2.
+Cronos ya emite `sub` (el login) y `auth` (autoridades separadas por espacio) desde el 2026-11-19 ([contrato de cronos](cronos-turnos-api.md), sección 3.1). Falta la prueba cruzada con atlas corriendo (issue #33 de atlas); si algo cambia, se actualiza la sección 2.2.

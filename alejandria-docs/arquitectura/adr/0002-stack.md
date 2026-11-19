@@ -51,7 +51,7 @@ Restricciones del enunciado que condicionan el stack:
 ### D3 — Sin JHipster en atlas-catalogo · Decidido
 - **Pros:** no hay usuarios que gestionar; el CRUD generado sería de escritura sobre una réplica de solo lectura; sin código generado que haya que borrar; control total de la estructura.
 - **Contras:** más setup manual; las convenciones de la cátedra (`problem+json`) se implementan a mano con `ProblemDetail`.
-- **Alcance:** esta decisión es solo para este repo. La decisión para `cronos-turnos` se toma aparte.
+- **Alcance:** esta decisión es solo para este repo. La de `cronos-turnos` se tomó aparte el 2026-11-19: tampoco usa JHipster ([ADR 0005](0005-usuarios-y-jwt-en-cronos-sin-jhipster.md)), a confirmar con el docente.
 
 ### D4 — Build: Gradle (Kotlin DSL) (alternativa: Maven) · Decidido
 - **Maven — pros:** declarativo y muy difundido en el ecosistema Spring; simple de razonar. **Contras:** XML verboso.
@@ -67,7 +67,7 @@ Restricciones del enunciado que condicionan el stack:
 
 ### D6 — Flyway (alternativa: Liquibase) · Decidido
 - **Pros:** SQL plano, fácil de leer y defender; menos conceptos.
-- **Contras:** si `cronos-turnos` usa JHipster, allí se usaría Liquibase (dos herramientas de migración distintas). Si resulta molesto, se reevalúa.
+- **Contras:** si `cronos-turnos` usara JHipster, allí se usaría Liquibase (dos herramientas de migración distintas). Ya no aplica: cronos no usa JHipster ([ADR 0005](0005-usuarios-y-jwt-en-cronos-sin-jhipster.md)) y también usa Flyway.
 - **Consulta 4 (expectativa de la cátedra sobre Flyway o Liquibase):** cerrada localmente el 2026-10-21, se mantiene Flyway; se confirma con el docente. Se aplicó en el issue #11: Flyway es el dueño del esquema (`V1__esquema_catalogo.sql`), Hibernate solo valida (`ddl-auto=validate`) y una migración ya aplicada no se edita (los cambios van en una versión nueva).
 
 ### D7 — Spring Data JPA (alternativas: JdbcClient/JdbcTemplate, jOOQ) · Decidido
@@ -95,7 +95,7 @@ Restricciones del enunciado que condicionan el stack:
 - **Pros RS256:** atlas solo conoce la clave pública y no puede forjar tokens; sin dependencia de runtime hacia el emisor.
 - **Contras RS256:** hay que gestionar el par de claves y publicar la pública.
 - **HS256 — pros:** trivial de configurar. **Contras:** el secreto compartido permite forjar tokens desde cualquiera de los dos servicios.
-- **Riesgo:** quien emite los tokens es `cronos-turnos`. Si allí se usa JHipster, su configuración por defecto firma con secreto compartido (HS512) y habría que personalizarla para RS256. Si no fuera viable, se registra un ADR nuevo que reemplace a este y atlas pasa a validar con secreto compartido, documentando la limitación.
+- **Riesgo:** quien emite los tokens es `cronos-turnos`. Si allí se usara JHipster, su configuración por defecto firmaría con secreto compartido (HS512) y habría que personalizarla para RS256. Se evita: cronos emite RS256 con Spring Security a mano ([ADR 0005](0005-usuarios-y-jwt-en-cronos-sin-jhipster.md)). Si el docente exigiera JHipster y RS256 no fuera viable, se registra un ADR nuevo que reemplace a este y atlas pasa a validar con secreto compartido, documentando la limitación.
 - Relacionada con la autenticación entre servicios (JWT propagado vs técnico): consulta 1 de las consultas al docente. **Resuelta en el [ADR 0004](0004-autenticacion-entre-servicios.md)**: se propaga el JWT del usuario firmado con RS256, y atlas lo valida con la clave pública (ítem 5, implementado el 2026-11-01).
 
 ### D13 — Testing: JUnit 5, AssertJ, Mockito, Testcontainers (Postgres, Kafka, Redis), `MockRestServiceServer`/WireMock para la cátedra, ArchUnit · Decidido

@@ -56,6 +56,16 @@ Cada repo de código tiene en su README un diagrama más cercano a su responsabi
 | [`implementacion/atlas-catalogo.md`](implementacion/atlas-catalogo.md) | Evolución del código y decisiones al implementar |
 | [`evidencias/`](evidencias/) | Verificaciones contra la cátedra real, sin secretos |
 
+## Documentos de cronos-turnos
+
+| Documento | Qué cuenta |
+| --- | --- |
+| [`modelo-datos/cronos-turnos.md`](modelo-datos/cronos-turnos.md) | Tablas de usuarios y autoridades, y sus decisiones |
+| [`contratos/cronos-turnos-api.md`](contratos/cronos-turnos-api.md) | Contrato con `hermes-app`: registro, login, token y errores (parcial) |
+| [`implementacion/cronos-turnos.md`](implementacion/cronos-turnos.md) | Evolución del código, decisiones al implementar y lo que encontraron las pruebas |
+| [`arquitectura/adr/0005-usuarios-y-jwt-en-cronos-sin-jhipster.md`](arquitectura/adr/0005-usuarios-y-jwt-en-cronos-sin-jhipster.md) | Por qué los usuarios van con Spring Security y sin JHipster |
+| [`evidencias/isla-2-usuarios-jwt.md`](evidencias/isla-2-usuarios-jwt.md) | Registro y login probados con la aplicación real |
+
 ## Convenciones
 
 - **Iteraciones** (campo Iteration del tablero `Odisea · Prog2`): `Isla N · Nombre`.
