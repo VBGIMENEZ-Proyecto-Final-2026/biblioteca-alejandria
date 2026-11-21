@@ -159,11 +159,12 @@ El `id` es el de cronos. La respuesta **no expone** el `holdId` ni el `reservati
 - **El mismo pedido dos veces devuelve el mismo proceso** y no crea otro hold (la base lo impide con un índice único parcial, también ante dos pedidos simultáneos).
 - **Si no se sabe si el hold se creó** (la cátedra no respondió), el proceso se cierra como `FAILED` (`CATEDRA_UNAVAILABLE`) y el hold, si existe, vence solo. Los holds no se reintentan solos: tienen efectos.
 - **Si no se sabe si se confirmó**, se reconcilia una vez (repetir la confirmación es seguro) y, si sigue sin saberse, queda en `HELD`: repetir el pedido **retoma la confirmación** sin crear otro hold.
+- **Un proceso que ya venció se cierra al volver a pedir el turno:** si el proceso activo (`HELD` o `WAITING_FOR_PHONE`) ya pasó su `expiresAt`, se cierra como `EXPIRED` y se empieza uno nuevo. Una reserva `CONFIRMED` no vence.
 - Un estado final nunca retrocede.
 
 ### 6.2 Límites
 
-- Todavía no hay listado, consulta ni cancelación de reservas, ni Kafka: un proceso queda en `WAITING_FOR_PHONE` y vence solo en la cátedra (issues #12 y #15).
+- Todavía no hay listado, consulta ni cancelación de reservas, ni Kafka (issues #12 y #15): un proceso queda en `WAITING_FOR_PHONE` aunque la cátedra lo haya dado por vencido, hasta que el usuario vuelva a pedir ese turno (se cierra como `EXPIRED`) o se implementen el evento de expiración y el barrido al reiniciar (#15 y #13).
 - Un proceso en `STARTING` o un hold huérfano se resuelven con la recuperación al reiniciar (issue #13); hasta entonces el pedido repetido recibe `409 RESERVATION_IN_PROGRESS`.
 
 ## 7. Errores

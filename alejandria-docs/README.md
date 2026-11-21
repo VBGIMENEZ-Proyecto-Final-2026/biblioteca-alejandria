@@ -67,6 +67,7 @@ Cada repo de código tiene en su README un diagrama más cercano a su responsabi
 | [`evidencias/isla-2-usuarios-jwt.md`](evidencias/isla-2-usuarios-jwt.md) | Registro y login probados con la aplicación real |
 | [`evidencias/isla-2-prueba-cruzada.md`](evidencias/isla-2-prueba-cruzada.md) | Un token de cronos aceptado por atlas y los tokens malos rechazados en los dos (26 de 26) |
 | [`evidencias/isla-2-disponibilidad.md`](evidencias/isla-2-disponibilidad.md) | Disponibilidad de turnos con atlas real y cátedra simulada; la cátedra real queda pendiente |
+| [`evidencias/isla-2-holds.md`](evidencias/isla-2-holds.md) | Holds contra la cátedra real: crear, repetir, turno tomado, vencimiento solo y los dos defectos que encontró |
 
 ## Convenciones
 

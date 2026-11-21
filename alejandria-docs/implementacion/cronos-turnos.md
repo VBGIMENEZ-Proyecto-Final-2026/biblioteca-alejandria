@@ -12,7 +12,7 @@ Registra cómo se construyó el código, en orden, y qué se decidió al impleme
 | 2026-11-19 | #5 · PR #6 | Esqueleto: Spring Boot 4.1.1, Java 25, puerto 8081, Flyway sin tablas, ArchUnit y test de contexto. Aprobado por el docente en GitHub | Cerrado, mergeado a `dev` (`2f578c6`) |
 | 2026-11-19 a 21 | #7 · PR #8 | Registro, login y emisión del JWT RS256, rutas protegidas y prueba cruzada con atlas. Etapas 1 a 6 | Mergeado a `dev` (`a631eb0`); el issue se cierra a mano |
 | 2026-11-21 | #9 · PR #10 | Disponibilidad de turnos: horarios de atlas menos ocupaciones de la cátedra | Mergeado a `dev` (`dadfdbd`); el issue se cierra a mano |
-| 2026-11-21 | #11 · rama `feature/holds` | Iniciar una reserva: hold y confirmación inicial con estado local y propiedad por usuario | En curso (commit local `c9d6ab0`) |
+| 2026-11-21 | #11 · rama `feature/holds` | Iniciar una reserva: hold y confirmación inicial con estado local y propiedad por usuario | En curso (rama pusheada; PR pendiente) |
 
 ## Usuarios y JWT (issue #7), etapas 1 a 6
 
@@ -73,12 +73,17 @@ Capas (hexagonal liviana, como atlas): `domain` solo con el JDK; `application` c
 | Pedir dos veces lo mismo reutiliza el proceso activo; el índice único parcial lo impide ante dos pedidos a la vez | "Sin reservas duplicadas" (enunciado 7). |
 | La cátedra conoce al paciente como `user-<id>` | Un identificador opaco: no revela el login a un servicio externo. |
 | No se pregunta a la cátedra si el turno está libre antes de pedir el hold | La respuesta del hold (`SLOT_ALREADY_HELD` / `SLOT_ALREADY_RESERVED`) es la verdad; una consulta previa sería otra foto que se queda vieja. |
-| Los instantes se truncan a microsegundos | Lo que se devuelve al guardar es idéntico a lo que se lee después de la base. |
+| Los instantes (`expiresAt`, `createdAt`, `updatedAt`) se truncan a microsegundos **en el dominio** | Lo que se devuelve al guardar es idéntico a lo que se lee después de la base. La cátedra real informa el vencimiento con nanosegundos y PostgreSQL guarda microsegundos. |
+| Un proceso activo que ya pasó su `expiresAt` se cierra como `EXPIRED` al volver a pedir el turno | Con la cátedra real el hold vence solo y cronos, sin Kafka todavía, no se entera: sin esta regla el usuario recibiría un proceso que ya no existe. La recuperación completa es el #13 y el evento de expiración, el #15. |
 | Un rechazo que no debería ocurrir (paciente que no coincide, hold de otra cuenta, cuerpo rechazado) da `502 CATEDRA_ERROR` sin detalle | Es un error de cronos o de configuración, no del usuario; queda en el log. |
 
-**Lo que encontraron las pruebas:** (1) un pedido repetido devolvía `createdAt` con nanosegundos la primera vez y con microsegundos la segunda (la base trunca): se corrigió truncando al microsegundo. (2) La prueba de "ningún dato personal en los logs" falló porque con todo en `TRACE`, Hibernate y el driver de PostgreSQL escriben los valores que enlazan al SQL, **incluido el nombre del paciente**. Es un límite del mismo tipo que el del *rejected value* de Spring: ninguna clase de cronos lo escribe y los tokens no aparecen en ninguna parte, pero queda documentado.
+**Lo que encontró el hold real** (los dobles de las pruebas no lo habían mostrado): (a) la cátedra informa `expiresAt` con **nanosegundos** (`17:02:25.905856025Z`) y la base guarda microsegundos, así que la primera respuesta de un pedido y las siguientes difería: se corrigió truncando en el dominio, con una prueba que falla sin la corrección. (b) El hold **vence solo** y cronos no se entera todavía: el usuario recibía un proceso muerto al reintentar; se agregó la regla de vencimiento local.
 
-**Pruebas:** 317 en verde (103 nuevas): los estados y sus transiciones (`ReservationStatusTest`, `ReservationTest`), el caso de uso con dobles (30), el cliente de holds contra HTTP real (11), su configuración (4), el repositorio contra PostgreSQL (18: índice único parcial, versiones, `CHECK`, claves) y la API de punta a punta (22). Ocho mutaciones deliberadas fueron detectadas: no cerrar el proceso al rechazarse el hold, no reutilizar el proceso activo, mandar el login a la cátedra, no reconciliar la confirmación, no tomar `RESERVATION_PROCESS_ALREADY_CONFIRMED` como éxito, permitir que un estado final reviva, un índice único sin la condición de activos y la ruta sin autenticación.
+**Lo que encontraron las pruebas:** (1) un pedido repetido devolvía `createdAt` con nanosegundos la primera vez y con microsegundos la segunda (la base trunca). (2) La prueba de "ningún dato personal en los logs" falló porque con todo en `TRACE`, Hibernate y el driver de PostgreSQL escriben los valores que enlazan al SQL, **incluido el nombre del paciente**. Es un límite del mismo tipo que el del *rejected value* de Spring: ninguna clase de cronos lo escribe y los tokens no aparecen en ninguna parte, pero queda documentado.
+
+**Evidencia con la cátedra real:** [isla-2-holds](../evidencias/isla-2-holds.md).
+
+**Pruebas:** 325 en verde (111 nuevas): los estados y sus transiciones (`ReservationStatusTest`, `ReservationTest`), el caso de uso con dobles (30), el cliente de holds contra HTTP real (11), su configuración (4), el repositorio contra PostgreSQL (18: índice único parcial, versiones, `CHECK`, claves) y la API de punta a punta (22). Diez mutaciones deliberadas fueron detectadas (las dos últimas, del vencimiento local y de la precisión): no cerrar el proceso al rechazarse el hold, no reutilizar el proceso activo, mandar el login a la cátedra, no reconciliar la confirmación, no tomar `RESERVATION_PROCESS_ALREADY_CONFIRMED` como éxito, permitir que un estado final reviva, un índice único sin la condición de activos y la ruta sin autenticación.
 
 ## Decisiones al implementar (usuarios)
 
