@@ -83,7 +83,7 @@ Capas (hexagonal liviana, como atlas): `domain` solo con el JDK; `application` c
 
 **Evidencia con la cátedra real:** [isla-2-holds](../evidencias/isla-2-holds.md).
 
-**Pruebas:** 325 en verde (111 nuevas): los estados y sus transiciones (`ReservationStatusTest`, `ReservationTest`), el caso de uso con dobles (30), el cliente de holds contra HTTP real (11), su configuración (4), el repositorio contra PostgreSQL (18: índice único parcial, versiones, `CHECK`, claves) y la API de punta a punta (22). Diez mutaciones deliberadas fueron detectadas (las dos últimas, del vencimiento local y de la precisión): no cerrar el proceso al rechazarse el hold, no reutilizar el proceso activo, mandar el login a la cátedra, no reconciliar la confirmación, no tomar `RESERVATION_PROCESS_ALREADY_CONFIRMED` como éxito, permitir que un estado final reviva, un índice único sin la condición de activos y la ruta sin autenticación.
+**Pruebas:** 325 en verde (111 nuevas): los estados y sus transiciones (`ReservationStatusTest`, `ReservationTest`), el caso de uso con dobles (35), el cliente de holds contra HTTP real (11), su configuración (4), el repositorio contra PostgreSQL (18: índice único parcial, versiones, `CHECK`, claves) y la API de punta a punta (24). Diez mutaciones deliberadas fueron detectadas (las dos últimas, del vencimiento local y de la precisión): no cerrar el proceso al rechazarse el hold, no reutilizar el proceso activo, mandar el login a la cátedra, no reconciliar la confirmación, no tomar `RESERVATION_PROCESS_ALREADY_CONFIRMED` como éxito, permitir que un estado final reviva, un índice único sin la condición de activos y la ruta sin autenticación.
 
 ## Decisiones al implementar (usuarios)
 
