@@ -1,13 +1,13 @@
 # Contrato de cronos-turnos: usuarios y autenticación
 
-**Versión 1 (parcial) · 2026-11-21.** Lo que `cronos-turnos` ofrece hoy a `hermes-app`: registro, inicio de sesión, emisión del JWT, consulta de la propia cuenta y disponibilidad de turnos. Bloqueos y reservas todavía no existen y se agregan a este contrato cuando se implementen. Lo que no está acá no es parte del contrato.
+**Versión 1 (parcial) · 2026-11-21.** Lo que `cronos-turnos` ofrece hoy a `hermes-app`: registro, inicio de sesión, emisión del JWT, consulta de la propia cuenta y disponibilidad de turnos e inicio de reservas. Consulta, cancelación y Kafka todavía no existen y se agregan a este contrato cuando se implementen. Lo que no está acá no es parte del contrato.
 
 ## 1. Alcance y reglas
 
 - **Quién emite los tokens:** cronos-turnos (decisión del 2026-11-01, [ADR 0004](../arquitectura/adr/0004-autenticacion-entre-servicios.md)). Atlas solo los valida con la clave pública.
 - **Sin JHipster:** el servicio implementa los usuarios con Spring Security y un contrato compatible con el usuario de JHipster, como pide el enunciado 3.2 ([ADR 0005](../arquitectura/adr/0005-usuarios-y-jwt-en-cronos-sin-jhipster.md)).
 - **Base:** `http(s)://<host-de-cronos>:8081`. Formato `application/json`, UTF-8. Los errores son `application/problem+json`.
-- **Rutas públicas:** `POST /api/register`, `POST /api/authenticate` y `GET /actuator/health`. Ignoran el encabezado `Authorization`: un token vencido guardado no impide volver a iniciar sesión. `GET /api/account` y `GET /api/professionals/{id}/availability` piden token. Todo lo demás se deniega.
+- **Rutas públicas:** `POST /api/register`, `POST /api/authenticate` y `GET /actuator/health`. Ignoran el encabezado `Authorization`: un token vencido guardado no impide volver a iniciar sesión. `GET /api/account`, `GET /api/professionals/{id}/availability` y `POST /api/reservations` piden token. Todo lo demás se deniega.
 - **No es la cuenta técnica de la cátedra.** Un usuario final y la cuenta técnica de integración son identidades distintas (enunciado 3.2): el JWT de la cátedra nunca se expone a la app.
 
 ## 2. Registro: `POST /api/register`
@@ -126,7 +126,47 @@ Cronos **no guarda** el catálogo ni las ocupaciones: cada consulta las pide de 
 - Atlas responde con su copia local: si no sincronizó con la cátedra, los horarios pueden estar desactualizados.
 - Un estado de ocupación que cronos no conoce hace fallar la consulta (`503`): es mejor que ofrecer un turno que podría estar tomado.
 
-## 6. Errores
+## 6. Reservas: `POST /api/reservations`
+
+Requiere `Authorization: Bearer <jwt>` con `ROLE_USER` o `ROLE_ADMIN`. Inicia una reserva (enunciado 7): valida el turno contra atlas, pide un hold a la cátedra y lo confirma inicialmente. El proceso queda **asociado al usuario del token**, esperando la información adicional (el teléfono y el resultado final llegan por Kafka, issue #15).
+
+```json
+{ "professionalId": 218, "date": "2026-12-15", "startTime": "14:30",
+  "patientFirstName": "Juan", "patientLastName": "Pérez" }
+```
+
+| Campo | Regla |
+|---|---|
+| `professionalId`, `date`, `startTime` | Obligatorios. El turno tiene que existir en la agenda vigente del profesional y no haber empezado. |
+| `patientFirstName`, `patientLastName` | Obligatorios, 2 a 100 caracteres. |
+
+Cualquier otro campo (`id`, `status`, `userId`, `externalPatientId`, `holdId`...) **se ignora**. El dueño es el del token; la cátedra conoce al paciente como `user-<id>`, un identificador opaco.
+
+Respuesta `202 Accepted` (el proceso sigue):
+
+```json
+{ "id": 6, "status": "WAITING_FOR_PHONE", "professionalId": 218,
+  "professionalFirstName": "Romina", "professionalLastName": "Acosta",
+  "date": "2026-12-15", "startTime": "14:30:00", "endTime": "15:00:00",
+  "patientFirstName": "Juan", "patientLastName": "Pérez",
+  "expiresAt": "2026-12-15T14:44:50Z", "createdAt": "2026-11-21T16:43:08.189582Z" }
+```
+
+El `id` es el de cronos. La respuesta **no expone** el `holdId` ni el `reservationProcessId` de la cátedra ni el usuario.
+
+### 6.1 Cómo se evita perder o duplicar
+
+- **El mismo pedido dos veces devuelve el mismo proceso** y no crea otro hold (la base lo impide con un índice único parcial, también ante dos pedidos simultáneos).
+- **Si no se sabe si el hold se creó** (la cátedra no respondió), el proceso se cierra como `FAILED` (`CATEDRA_UNAVAILABLE`) y el hold, si existe, vence solo. Los holds no se reintentan solos: tienen efectos.
+- **Si no se sabe si se confirmó**, se reconcilia una vez (repetir la confirmación es seguro) y, si sigue sin saberse, queda en `HELD`: repetir el pedido **retoma la confirmación** sin crear otro hold.
+- Un estado final nunca retrocede.
+
+### 6.2 Límites
+
+- Todavía no hay listado, consulta ni cancelación de reservas, ni Kafka: un proceso queda en `WAITING_FOR_PHONE` y vence solo en la cátedra (issues #12 y #15).
+- Un proceso en `STARTING` o un hold huérfano se resuelven con la recuperación al reiniciar (issue #13); hasta entonces el pedido repetido recibe `409 RESERVATION_IN_PROGRESS`.
+
+## 7. Errores
 
 | Situación | HTTP | `code` |
 |---|---|---|
@@ -144,15 +184,22 @@ Cronos **no guarda** el catálogo ni las ocupaciones: cada consulta las pide de 
 | Disponibilidad: profesional que atlas no conoce | 404 | `PROFESSIONAL_NOT_FOUND` |
 | Disponibilidad: atlas caído, lento o que rechaza el token | 503 | `CATALOG_UNAVAILABLE` |
 | Disponibilidad: cátedra caída, lenta o que rechaza la credencial técnica | 503 | `CATEDRA_UNAVAILABLE` |
+| Reservas: cuerpo inválido | 400 | `VALIDATION_ERROR` |
+| Reservas: el turno no está en la agenda o ya empezó | 400 | `INVALID_SLOT` |
+| Reservas: el profesional está deshabilitado | 400 | `PROFESSIONAL_DISABLED` |
+| Reservas: turno ya tomado en la cátedra | 409 | `SLOT_ALREADY_HELD` o `SLOT_ALREADY_RESERVED` |
+| Reservas: el hold venció antes de confirmarse | 409 | `HOLD_EXPIRED` |
+| Reservas: el mismo pedido se está procesando ahora | 409 | `RESERVATION_IN_PROGRESS` |
+| Reservas: la cátedra rechazó por un motivo que no debería ocurrir | 502 | `CATEDRA_ERROR` (sin detalle) |
 | Base de datos no disponible | 503 | `SERVICE_UNAVAILABLE` |
 
 Forma del error: `title`, `status`, `message`, `path` y `code`, como en la referencia de integración (sección 13). Los mensajes son fijos: **no repiten** el valor recibido, y menos una contraseña. El `401` y el `403` **no dicen por qué** falló el token y nunca lo repiten; sus códigos son los mismos que usa atlas.
 
 Los vocabularios `VALIDATION_ERROR`, `USERNAME_ALREADY_EXISTS`, `EMAIL_ALREADY_EXISTS` e `INVALID_PASSWORD` salen de la matriz de errores de la cátedra para el registro de la cuenta técnica (13.1); el enunciado no define validaciones propias para el usuario final, así que se reutilizan como referencia.
 
-## 7. Lo que todavía no está
+## 8. Lo que todavía no está
 
 - Cierre del issue #33 de atlas: la prueba cruzada ya se hizo (un token real de cronos fue aceptado por atlas, [evidencia](../evidencias/isla-2-prueba-cruzada.md)) y falta que el alumno lo cierre.
-- Bloqueos (holds), reservas, confirmación por Kafka, consulta y cancelación de reservas propias.
+- Información adicional y resultado final por Kafka, consulta y cancelación de reservas propias, y recuperación al reiniciar.
 - Un usuario administrador (`ROLE_ADMIN`): el registro solo crea `ROLE_USER`.
 - Recuperación de contraseña, edición del perfil, límite de intentos de login y revocación de tokens.

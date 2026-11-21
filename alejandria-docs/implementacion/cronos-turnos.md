@@ -1,6 +1,6 @@
 # Implementación de cronos-turnos · evolución
 
-**Componente:** cronos-turnos · **Isla:** 2 · Ogigia (arranque anticipado) · **Actualizado:** 2026-11-21 (disponibilidad)
+**Componente:** cronos-turnos · **Isla:** 2 · Ogigia (arranque anticipado) · **Actualizado:** 2026-11-21 (holds)
 
 Registra cómo se construyó el código, en orden, y qué se decidió al implementar. Stack igual al de atlas ([ADR 0002](../arquitectura/adr/0002-stack.md)); arquitectura interna igual ([ADR 0003](../arquitectura/adr/0003-arquitectura.md)); usuarios sin JHipster ([ADR 0005](../arquitectura/adr/0005-usuarios-y-jwt-en-cronos-sin-jhipster.md)).
 
@@ -11,7 +11,8 @@ Registra cómo se construyó el código, en orden, y qué se decidió al impleme
 | 2026-10-03 y 04 | #1 a #4 | Estructura inicial, `.env.example`, PostgreSQL con Docker Compose | Cerrados |
 | 2026-11-19 | #5 · PR #6 | Esqueleto: Spring Boot 4.1.1, Java 25, puerto 8081, Flyway sin tablas, ArchUnit y test de contexto. Aprobado por el docente en GitHub | Cerrado, mergeado a `dev` (`2f578c6`) |
 | 2026-11-19 a 21 | #7 · PR #8 | Registro, login y emisión del JWT RS256, rutas protegidas y prueba cruzada con atlas. Etapas 1 a 6 | Mergeado a `dev` (`a631eb0`); el issue se cierra a mano |
-| 2026-11-21 | #9 · rama `feature/disponibilidad` | Disponibilidad de turnos: horarios de atlas menos ocupaciones de la cátedra | En curso (commit local `c6a8837`) |
+| 2026-11-21 | #9 · PR #10 | Disponibilidad de turnos: horarios de atlas menos ocupaciones de la cátedra | Mergeado a `dev` (`dadfdbd`); el issue se cierra a mano |
+| 2026-11-21 | #11 · rama `feature/holds` | Iniciar una reserva: hold y confirmación inicial con estado local y propiedad por usuario | En curso (commit local `c9d6ab0`) |
 
 ## Usuarios y JWT (issue #7), etapas 1 a 6
 
@@ -52,6 +53,33 @@ Capas (hexagonal liviana, como atlas): `domain` solo con el JDK; `application` c
 
 **Pruebas:** 214 en verde (92 nuevas): el calculador (22), el caso de uso con dobles (14), los dos clientes contra HTTP real (12 y 11), la configuración de los clientes con timeouts y redirecciones (6 y 5 de propiedades) y la API de punta a punta con PostgreSQL y servidores simulados (22). Seis mutaciones deliberadas fueron detectadas (no restar `HELD`, ofrecer turnos que ya empezaron, aceptar turnos que no entran, seguir redirecciones, consultar a la cátedra sin grilla y dejar la ruta pública). Evidencia: [isla-2-disponibilidad](../evidencias/isla-2-disponibilidad.md), con una corrida con la cátedra simulada y otra con **la cátedra real** (formato de las ocupaciones confirmado y un turno `CONFIRMED` real restado).
 
+## Holds: iniciar una reserva (issue #11)
+
+`POST /api/reservations` ([contrato](../contratos/cronos-turnos-api.md), sección 6; [modelo de datos](../modelo-datos/cronos-turnos.md), tabla `reservation_process`).
+
+- **`domain`**: `ReservationStatus` (la máquina de estados, donde un estado final no retrocede) y `Reservation` (inmutable: cada cambio devuelve otro valor y exige una transición permitida).
+- **`application`**: el caso de uso `StartReservation` y los puertos `HoldGateway` (la cátedra), `ReservationRepository` y `CatalogClient`; excepciones propias (`CatedraRejectedException` frente a `CatedraUnavailableException`).
+- **`adapters.out.rest`**: `CatedraHoldClient`, **sin reintentos automáticos**.
+- **`adapters.out.persistence`**: `ReservationEntity` (con `@Version`), `JpaReservationRepository` y la migración `V2__reservas.sql`.
+- **`adapters.in.web`**: `ReservationController`, `ReservationRequest`, `ReservationResponse` y los `problem+json` nuevos.
+
+| Decisión | Motivo |
+|---|---|
+| El proceso se guarda **antes** de cada llamada con efectos y nunca dentro de una transacción mientras se espera a la red | Si cronos se corta queda el rastro; una transacción abierta durante una llamada de red agota conexiones. |
+| Los holds no se reintentan solos | Tienen efectos y un timeout no prueba que fallaron (referencia 18.4). |
+| Distinguir un **rechazo** de la cátedra (por `status` y `code`) de **no saber qué pasó** | Se tratan distinto: un rechazo cierra el proceso con su motivo; no saber deja la decisión a la reconciliación. |
+| Si no se sabe si el hold se creó, el proceso se cierra como `FAILED` | No queda colgado; el hold, si existe, vence solo. Costo: el turno puede figurar como ocupado hasta que venza. |
+| Si no se sabe si se confirmó, se reconcilia **una** vez y se deja en `HELD` | Repetir la confirmación es seguro (`RESERVATION_PROCESS_ALREADY_CONFIRMED` cuenta como éxito); repetir el pedido retoma sin crear otro hold. |
+| Pedir dos veces lo mismo reutiliza el proceso activo; el índice único parcial lo impide ante dos pedidos a la vez | "Sin reservas duplicadas" (enunciado 7). |
+| La cátedra conoce al paciente como `user-<id>` | Un identificador opaco: no revela el login a un servicio externo. |
+| No se pregunta a la cátedra si el turno está libre antes de pedir el hold | La respuesta del hold (`SLOT_ALREADY_HELD` / `SLOT_ALREADY_RESERVED`) es la verdad; una consulta previa sería otra foto que se queda vieja. |
+| Los instantes se truncan a microsegundos | Lo que se devuelve al guardar es idéntico a lo que se lee después de la base. |
+| Un rechazo que no debería ocurrir (paciente que no coincide, hold de otra cuenta, cuerpo rechazado) da `502 CATEDRA_ERROR` sin detalle | Es un error de cronos o de configuración, no del usuario; queda en el log. |
+
+**Lo que encontraron las pruebas:** (1) un pedido repetido devolvía `createdAt` con nanosegundos la primera vez y con microsegundos la segunda (la base trunca): se corrigió truncando al microsegundo. (2) La prueba de "ningún dato personal en los logs" falló porque con todo en `TRACE`, Hibernate y el driver de PostgreSQL escriben los valores que enlazan al SQL, **incluido el nombre del paciente**. Es un límite del mismo tipo que el del *rejected value* de Spring: ninguna clase de cronos lo escribe y los tokens no aparecen en ninguna parte, pero queda documentado.
+
+**Pruebas:** 317 en verde (103 nuevas): los estados y sus transiciones (`ReservationStatusTest`, `ReservationTest`), el caso de uso con dobles (30), el cliente de holds contra HTTP real (11), su configuración (4), el repositorio contra PostgreSQL (18: índice único parcial, versiones, `CHECK`, claves) y la API de punta a punta (22). Ocho mutaciones deliberadas fueron detectadas: no cerrar el proceso al rechazarse el hold, no reutilizar el proceso activo, mandar el login a la cátedra, no reconciliar la confirmación, no tomar `RESERVATION_PROCESS_ALREADY_CONFIRMED` como éxito, permitir que un estado final reviva, un índice único sin la condición de activos y la ruta sin autenticación.
+
 ## Decisiones al implementar (usuarios)
 
 | Decisión | Motivo |
@@ -88,4 +116,4 @@ Capas (hexagonal liviana, como atlas): `domain` solo con el JDK; `application` c
 - Sin límite de intentos de login ni revocación de tokens; mínimo de contraseña de 4 (el de la cátedra); los roles salen del token; rotar la clave invalida todos los tokens y exige reiniciar atlas.
 - La prueba cruzada es un script manual, no una prueba automática que corra en cada build.
 - Falta: el cierre del issue #7 y del #33 de atlas, y un usuario administrador (`ROLE_ADMIN`) para la demostración.
-- Después: bloqueos con vencimiento (holds), reservas con Kafka e idempotencia, consulta y cancelación de reservas propias.
+- Después: reservas con Kafka e idempotencia (#15), consulta y cancelación de reservas propias (#12), recuperación al reiniciar (#13) y usuario administrador (#14).
