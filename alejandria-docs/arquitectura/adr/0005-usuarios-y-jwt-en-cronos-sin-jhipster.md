@@ -1,6 +1,6 @@
 # ADR 0005 · Usuarios y JWT en cronos-turnos: Spring Security a mano, sin JHipster y con el contrato de usuario de JHipster
 
-**Estado:** aceptado por el alumno el 2026-11-19 y implementado en `cronos-turnos` (issue #7, etapas 1 a 3: registro y login con JWT RS256); a confirmar con el docente (consultas 5 y 6) · **Componente:** cronos-turnos · **Contexto:** Isla 1, issue #33 de atlas-catalogo · **Relacionado:** [ADR 0002](0002-stack.md), [ADR 0004](0004-autenticacion-entre-servicios.md) y [seguridad de atlas-catalogo](../seguridad-atlas-catalogo.md)
+**Estado:** aceptado por el alumno el 2026-11-19 y implementado en `cronos-turnos` (issue #7, etapas 1 a 6: registro, login con JWT RS256, rutas protegidas y prueba cruzada con atlas); a confirmar con el docente (consultas 5 y 6) · **Componente:** cronos-turnos · **Contexto:** Isla 1, issue #33 de atlas-catalogo · **Relacionado:** [ADR 0002](0002-stack.md), [ADR 0004](0004-autenticacion-entre-servicios.md) y [seguridad de atlas-catalogo](../seguridad-atlas-catalogo.md)
 
 ## Contexto
 

@@ -20,7 +20,7 @@ Ningún token, clave ni contraseña real figura acá. El token no se reproduce: 
 - Claims: solo `sub` (el login en minúsculas), `auth` (`ROLE_USER`), `iat` y `exp`; una hora entre `iat` y `exp`.
 - **Firma verificada con la clave pública de desarrollo** que atlas ya usa, con `openssl dgst -sha256 -verify`: `Verified OK`.
 
-Esto prueba que el token es verificable con la clave pública, pero **no** que atlas lo acepte: la prueba cruzada con atlas corriendo es la etapa 5 y todavía no se hizo.
+Esto prueba que el token es verificable con la clave pública, pero **no** que atlas lo acepte. Esa prueba (etapa 5) se hizo el 2026-11-20 y está en [isla-2-prueba-cruzada](isla-2-prueba-cruzada.md): atlas aceptó un token real de cronos.
 
 ## Arranque sin clave
 
@@ -28,7 +28,9 @@ La prueba automática `UsersConfigTest` cubre que sin `CRONOS_JWT_PRIVATE_KEY_LO
 
 ## Pruebas automáticas
 
-86 pruebas, 0 fallas, 0 errores (`./gradlew test`, con Podman). Dos mutaciones deliberadas fueron detectadas: quitar el hash de relleno que iguala los tiempos del login, y agregar el email como claim del token.
+86 pruebas, 0 fallas, 0 errores al 2026-11-19 (`./gradlew test`, con Podman). Dos mutaciones deliberadas fueron detectadas: quitar el hash de relleno que iguala los tiempos del login, y agregar el email como claim del token.
+
+**Actualización 2026-11-21 (etapas 4 y 6):** 122 pruebas, 0 fallas, 0 errores (36 nuevas: `GET /api/account`, tokens malos, `401` y `403`, rutas públicas con encabezado roto, CORS y configuración). Otras dos mutaciones fueron detectadas: no exigir `sub` y `exp` en el token, y abrir `/api/account` a cualquier usuario autenticado. Lo que esas pruebas muestran con la aplicación corriendo (cuenta propia, tokens malos, `403`) está en la evidencia de la prueba cruzada.
 
 ## Límites de esta evidencia
 
