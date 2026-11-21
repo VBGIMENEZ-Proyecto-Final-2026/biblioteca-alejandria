@@ -1,13 +1,13 @@
 # Contrato de cronos-turnos: usuarios y autenticación
 
-**Versión 1 (parcial) · 2026-11-21.** Lo que `cronos-turnos` ofrece hoy a `hermes-app`: registro, inicio de sesión, emisión del JWT y consulta de la propia cuenta. Disponibilidad, bloqueos y reservas todavía no existen y se agregan a este contrato cuando se implementen. Lo que no está acá no es parte del contrato.
+**Versión 1 (parcial) · 2026-11-21.** Lo que `cronos-turnos` ofrece hoy a `hermes-app`: registro, inicio de sesión, emisión del JWT, consulta de la propia cuenta y disponibilidad de turnos. Bloqueos y reservas todavía no existen y se agregan a este contrato cuando se implementen. Lo que no está acá no es parte del contrato.
 
 ## 1. Alcance y reglas
 
 - **Quién emite los tokens:** cronos-turnos (decisión del 2026-11-01, [ADR 0004](../arquitectura/adr/0004-autenticacion-entre-servicios.md)). Atlas solo los valida con la clave pública.
 - **Sin JHipster:** el servicio implementa los usuarios con Spring Security y un contrato compatible con el usuario de JHipster, como pide el enunciado 3.2 ([ADR 0005](../arquitectura/adr/0005-usuarios-y-jwt-en-cronos-sin-jhipster.md)).
 - **Base:** `http(s)://<host-de-cronos>:8081`. Formato `application/json`, UTF-8. Los errores son `application/problem+json`.
-- **Rutas públicas:** `POST /api/register`, `POST /api/authenticate` y `GET /actuator/health`. Ignoran el encabezado `Authorization`: un token vencido guardado no impide volver a iniciar sesión. `GET /api/account` pide token. Todo lo demás se deniega.
+- **Rutas públicas:** `POST /api/register`, `POST /api/authenticate` y `GET /actuator/health`. Ignoran el encabezado `Authorization`: un token vencido guardado no impide volver a iniciar sesión. `GET /api/account` y `GET /api/professionals/{id}/availability` piden token. Todo lo demás se deniega.
 - **No es la cuenta técnica de la cátedra.** Un usuario final y la cuenta técnica de integración son identidades distintas (enunciado 3.2): el JWT de la cátedra nunca se expone a la app.
 
 ## 2. Registro: `POST /api/register`
@@ -84,7 +84,49 @@ Solo RS256 (un token `HS256` o `none` se rechaza), la firma, el vencimiento con 
 
 Sin orígenes configurados no se acepta ninguno. Con una lista (`esquema://host[:puerto]`, sin comodines) se aceptan solo esos, con `GET`, `POST` y `OPTIONS`, los encabezados `Authorization`, `Content-Type` y `Accept`, y sin credenciales. La app Android no es un navegador y no lo necesita.
 
-## 5. Errores
+## 5. Disponibilidad: `GET /api/professionals/{professionalId}/availability`
+
+Requiere `Authorization: Bearer <jwt>` con `ROLE_USER` o `ROLE_ADMIN`. Devuelve los turnos libres de un profesional entre dos fechas. Es la operación con la que la app muestra qué se puede reservar (enunciado 4.2 y 7).
+
+| Parámetro | Obligatorio | Regla |
+|---|---|---|
+| `professionalId` (ruta) | sí | Entero. Es el id del profesional **en el catálogo** (atlas). |
+| `from`, `to` | sí | `yyyy-MM-dd`, ambos inclusivos. `from` no puede ser posterior a `to` y el rango no puede superar 31 días (`CRONOS_AVAILABILITY_MAX_RANGE_DAYS`). |
+
+Respuesta `200 OK`:
+
+```json
+{
+  "professionalId": 207,
+  "from": "2026-11-23",
+  "to": "2026-11-25",
+  "slots": [
+    { "date": "2026-11-23", "startTime": "18:00:00", "endTime": "18:30:00" },
+    { "date": "2026-11-23", "startTime": "19:30:00", "endTime": "20:00:00" }
+  ]
+}
+```
+
+Los turnos salen ordenados por fecha y hora. Una lista vacía es una respuesta válida.
+
+### 5.1 Cómo se calcula
+
+1. Cronos pide a atlas `GET /api/professionals/{id}` **reenviando el mismo JWT del usuario**, sin modificarlo ([ADR 0004](../arquitectura/adr/0004-autenticacion-entre-servicios.md)). Si atlas falla, cronos no consulta a la cátedra.
+2. De cada horario semanal **habilitado** sale la grilla del día (de `startTime` a `endTime`, cada `slotDurationMinutes`); solo cuentan los turnos que entran completos. Un profesional o un horario deshabilitado no ofrece turnos. Si el profesional no atiende en el rango, se responde vacío sin consultar a la cátedra.
+3. Cronos pide **una sola vez** a la cátedra las ocupaciones de todo el rango (`GET /api/appointment-occupancies`, con el JWT técnico del proyecto, referencia de integración 8) y descarta los turnos `CONFIRMED` y `HELD`. Un turno se identifica por fecha y hora de inicio.
+4. Se descartan los turnos que **ya empezaron**, comparando en la hora local del consultorio (`CRONOS_CLINIC_ZONE`, por defecto `America/Argentina/Buenos_Aires`): los horarios y las ocupaciones no traen zona.
+
+Cronos **no guarda** el catálogo ni las ocupaciones: cada consulta las pide de nuevo (enunciado 3). La respuesta no incluye datos del profesional, solo los turnos.
+
+### 5.2 Fallas y límites
+
+- **Timeouts y reintentos acotados.** Atlas: 2 s para conectar, 5 s para leer, 1 reintento. Cátedra: 3 s, 10 s, 1 reintento. Solo se reintentan lecturas y solo fallas transitorias (red, timeout y `503`). Máximo 5 reintentos por configuración.
+- **No se siguen redirecciones**: un token nunca se reenvía a otro destino. Ningún token se registra en un log ni en un mensaje de error.
+- **Una foto, no una reserva.** Entre que se consulta y se pide un hold otro usuario puede tomar el turno; el hold (próxima etapa) es lo que lo reserva y la cátedra responde `SLOT_ALREADY_HELD` o `SLOT_ALREADY_RESERVED`.
+- Atlas responde con su copia local: si no sincronizó con la cátedra, los horarios pueden estar desactualizados.
+- Un estado de ocupación que cronos no conoce hace fallar la consulta (`503`): es mejor que ofrecer un turno que podría estar tomado.
+
+## 6. Errores
 
 | Situación | HTTP | `code` |
 |---|---|---|
@@ -97,14 +139,20 @@ Sin orígenes configurados no se acepta ninguno. Con una lista (`esquema://host[
 | Token válido pero sin el rol que pide la ruta | 403 | `SIN_PERMISO` |
 | Ruta o método no habilitados, con token válido | 403 | `SIN_PERMISO` |
 | Ruta o método no habilitados, sin token | 401 | `NO_AUTENTICADO` |
+| Disponibilidad: rango invertido o de más de 31 días | 400 | `INVALID_DATE_RANGE` |
+| Disponibilidad: fecha mal formada, falta un parámetro o el id no es un número | 400 | `VALIDATION_ERROR` (nombra el parámetro, no repite el valor) |
+| Disponibilidad: profesional que atlas no conoce | 404 | `PROFESSIONAL_NOT_FOUND` |
+| Disponibilidad: atlas caído, lento o que rechaza el token | 503 | `CATALOG_UNAVAILABLE` |
+| Disponibilidad: cátedra caída, lenta o que rechaza la credencial técnica | 503 | `CATEDRA_UNAVAILABLE` |
 | Base de datos no disponible | 503 | `SERVICE_UNAVAILABLE` |
 
 Forma del error: `title`, `status`, `message`, `path` y `code`, como en la referencia de integración (sección 13). Los mensajes son fijos: **no repiten** el valor recibido, y menos una contraseña. El `401` y el `403` **no dicen por qué** falló el token y nunca lo repiten; sus códigos son los mismos que usa atlas.
 
 Los vocabularios `VALIDATION_ERROR`, `USERNAME_ALREADY_EXISTS`, `EMAIL_ALREADY_EXISTS` e `INVALID_PASSWORD` salen de la matriz de errores de la cátedra para el registro de la cuenta técnica (13.1); el enunciado no define validaciones propias para el usuario final, así que se reutilizan como referencia.
 
-## 6. Lo que todavía no está
+## 7. Lo que todavía no está
 
 - Cierre del issue #33 de atlas: la prueba cruzada ya se hizo (un token real de cronos fue aceptado por atlas, [evidencia](../evidencias/isla-2-prueba-cruzada.md)) y falta que el alumno lo cierre.
+- Bloqueos (holds), reservas, confirmación por Kafka, consulta y cancelación de reservas propias.
 - Un usuario administrador (`ROLE_ADMIN`): el registro solo crea `ROLE_USER`.
 - Recuperación de contraseña, edición del perfil, límite de intentos de login y revocación de tokens.

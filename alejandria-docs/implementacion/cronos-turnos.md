@@ -1,6 +1,6 @@
 # Implementación de cronos-turnos · evolución
 
-**Componente:** cronos-turnos · **Isla:** 2 · Ogigia (arranque anticipado) · **Actualizado:** 2026-11-21
+**Componente:** cronos-turnos · **Isla:** 2 · Ogigia (arranque anticipado) · **Actualizado:** 2026-11-21 (disponibilidad)
 
 Registra cómo se construyó el código, en orden, y qué se decidió al implementar. Stack igual al de atlas ([ADR 0002](../arquitectura/adr/0002-stack.md)); arquitectura interna igual ([ADR 0003](../arquitectura/adr/0003-arquitectura.md)); usuarios sin JHipster ([ADR 0005](../arquitectura/adr/0005-usuarios-y-jwt-en-cronos-sin-jhipster.md)).
 
@@ -10,7 +10,8 @@ Registra cómo se construyó el código, en orden, y qué se decidió al impleme
 |---|---|---|---|
 | 2026-10-03 y 04 | #1 a #4 | Estructura inicial, `.env.example`, PostgreSQL con Docker Compose | Cerrados |
 | 2026-11-19 | #5 · PR #6 | Esqueleto: Spring Boot 4.1.1, Java 25, puerto 8081, Flyway sin tablas, ArchUnit y test de contexto. Aprobado por el docente en GitHub | Cerrado, mergeado a `dev` (`2f578c6`) |
-| 2026-11-19 a 21 | #7 · rama `feature/usuarios-jwt` | Registro, login y emisión del JWT RS256, rutas protegidas y prueba cruzada con atlas. Etapas 1 a 6 hechas | Abierto; falta el PR a `dev` |
+| 2026-11-19 a 21 | #7 · PR #8 | Registro, login y emisión del JWT RS256, rutas protegidas y prueba cruzada con atlas. Etapas 1 a 6 | Mergeado a `dev` (`a631eb0`); el issue se cierra a mano |
+| 2026-11-21 | #9 · rama `feature/disponibilidad` | Disponibilidad de turnos: horarios de atlas menos ocupaciones de la cátedra | En curso (commit local `c6a8837`) |
 
 ## Usuarios y JWT (issue #7), etapas 1 a 6
 
@@ -25,7 +26,33 @@ Un commit por etapa. Las etapas 1 a 3 se publicaron el 2026-11-19; la 4, la 5 y 
 
 Capas (hexagonal liviana, como atlas): `domain` solo con el JDK; `application` con los casos de uso y los puertos (`UserRepository`, `PasswordHasher`, `TokenIssuer`); `adapters.in.web`, `adapters.out.persistence` y `adapters.out.security`; `config` con el cableado. La regla de ArchUnit impide que `application` use Spring Security, por eso el hash y el JWT van detrás de puertos.
 
-## Decisiones al implementar
+## Disponibilidad (issue #9)
+
+`GET /api/professionals/{id}/availability?from=&to=` ([contrato](../contratos/cronos-turnos-api.md), sección 5). Capas, igual que en usuarios:
+
+- **`domain`**: `WeeklySchedule`, `ProfessionalAgenda`, `Occupancy`, `Slot` y `AvailabilityCalculator`, una función pura (grilla, turnos que no entran completos, ocupaciones, turnos que ya empezaron, horarios superpuestos y duraciones inválidas). Solo usa el JDK.
+- **`application`**: el caso de uso `GetAvailability` y dos puertos de salida, `CatalogClient` (atlas) y `OccupancyClient` (cátedra), con sus excepciones. El caso de uso valida el rango, pide atlas, y solo si el profesional atiende en el rango pregunta a la cátedra, una vez para todo el rango.
+- **`adapters.out.rest`**: `AtlasCatalogClient` y `CatedraOccupancyClient` sobre `RestClient`, con timeouts, reintentos acotados y sin redirecciones.
+- **`adapters.in.web`**: `AvailabilityController` y los `problem+json` nuevos.
+- **`config`**: `AtlasProperties`, `CatedraProperties` (las mismas variables `CATEDRA_*` que atlas, ahora obligatorias), `AvailabilityProperties` y el cableado.
+
+| Decisión | Motivo |
+|---|---|
+| Orden: atlas primero; si falla, no se consulta a la cátedra | Sin catálogo no se puede validar la información vigente (enunciado 8); no hay que gastar una llamada que no puede usarse. |
+| Si el profesional no atiende en el rango, no se consulta a la cátedra | No hay turnos que restar. |
+| Una sola consulta de ocupaciones por rango, no una por día | Menos llamadas a un servicio externo y menos puntos donde fallar. |
+| Se reenvía el JWT del usuario a atlas y el técnico solo va a la cátedra | Atlas debe saber quién consulta; la cuenta técnica es otra identidad y nunca sale de cronos (enunciado 3.2). Hay una prueba de cada lado. |
+| Un estado de ocupación desconocido hace fallar la consulta | Ofrecer un turno que podría estar tomado es peor que decir que no se puede calcular. |
+| Los reintentos van de 0 a 5 y solo para lecturas transitorias | El enunciado pide evitar ciclos de reintento ilimitados (sección 8). |
+| No se siguen redirecciones | Un token no se reenvía a otro destino. |
+| Los turnos pasados se descartan en la hora local del consultorio (`CRONOS_CLINIC_ZONE`) | Los horarios no traen zona (referencia, sección 4); se fija una por configuración, con Buenos Aires por defecto. **Es una decisión propia**: la cátedra no define la zona. |
+| `503` con un código propio por cada servicio caído (`CATALOG_UNAVAILABLE`, `CATEDRA_UNAVAILABLE`) | El cliente y el log distinguen quién falló sin exponer detalles. |
+
+**Lo que encontraron las pruebas:** la prueba de punta a punta falló todas las veces la primera vez porque el inicializador de pruebas (que pone una cátedra falsa para que cronos arranque) pisaba a los servidores simulados de la propia prueba; y un `@ContextConfiguration` directo en una clase **reemplaza** al de la meta-anotación en lugar de sumarse, así que el inicializador de la clave JWT dejó de correr. Una mutación escrita mal (`|| false`) no cambió nada y se repitió bien.
+
+**Pruebas:** 214 en verde (92 nuevas): el calculador (22), el caso de uso con dobles (14), los dos clientes contra HTTP real (12 y 11), la configuración de los clientes con timeouts y redirecciones (6 y 5 de propiedades) y la API de punta a punta con PostgreSQL y servidores simulados (22). Seis mutaciones deliberadas fueron detectadas (no restar `HELD`, ofrecer turnos que ya empezaron, aceptar turnos que no entran, seguir redirecciones, consultar a la cátedra sin grilla y dejar la ruta pública). Evidencia: [isla-2-disponibilidad](../evidencias/isla-2-disponibilidad.md).
+
+## Decisiones al implementar (usuarios)
 
 | Decisión | Motivo |
 |---|---|
@@ -54,11 +81,11 @@ Capas (hexagonal liviana, como atlas): `domain` solo con el JDK; `application` c
 
 ## Pruebas
 
-122 pruebas en verde, sin fallas ni errores, contra PostgreSQL real con Testcontainers: las 86 de las etapas 1 a 3 (dominio, casos de uso con dobles, migración y restricciones, hash, emisión y verificación del token, carga de claves, arranque sin clave y la API de punta a punta con prueba de que la contraseña no aparece en respuestas ni logs) y 36 nuevas de la etapa 4 (`GET /api/account`, tokens malos, `401` y `403`, rutas públicas con encabezado roto, CORS y configuración). Cuatro mutaciones deliberadas fueron detectadas por una prueba: quitar el hash de relleno, meter el email en el token, no exigir `sub` y `exp`, y abrir `/api/account` a cualquier autenticado. Evidencia con la aplicación real: [isla-2-usuarios-jwt](../evidencias/isla-2-usuarios-jwt.md) y [isla-2-prueba-cruzada](../evidencias/isla-2-prueba-cruzada.md).
+(Al cerrar usuarios.) 122 pruebas en verde, sin fallas ni errores, contra PostgreSQL real con Testcontainers: las 86 de las etapas 1 a 3 (dominio, casos de uso con dobles, migración y restricciones, hash, emisión y verificación del token, carga de claves, arranque sin clave y la API de punta a punta con prueba de que la contraseña no aparece en respuestas ni logs) y 36 nuevas de la etapa 4 (`GET /api/account`, tokens malos, `401` y `403`, rutas públicas con encabezado roto, CORS y configuración). Cuatro mutaciones deliberadas fueron detectadas por una prueba: quitar el hash de relleno, meter el email en el token, no exigir `sub` y `exp`, y abrir `/api/account` a cualquier autenticado. Evidencia con la aplicación real: [isla-2-usuarios-jwt](../evidencias/isla-2-usuarios-jwt.md) y [isla-2-prueba-cruzada](../evidencias/isla-2-prueba-cruzada.md).
 
 ## Límites y lo que sigue
 
 - Sin límite de intentos de login ni revocación de tokens; mínimo de contraseña de 4 (el de la cátedra); los roles salen del token; rotar la clave invalida todos los tokens y exige reiniciar atlas.
 - La prueba cruzada es un script manual, no una prueba automática que corra en cada build.
-- Falta: que el PR llegue a `dev`, el cierre del issue #33 de atlas y un usuario administrador (`ROLE_ADMIN`) para la demostración.
-- Después: cliente de atlas y disponibilidad, bloqueos con vencimiento, reservas con Kafka e idempotencia, y un usuario administrador si hace falta para la demostración.
+- Falta: el cierre del issue #7 y del #33 de atlas, y un usuario administrador (`ROLE_ADMIN`) para la demostración.
+- Después: bloqueos con vencimiento (holds), reservas con Kafka e idempotencia, consulta y cancelación de reservas propias.
