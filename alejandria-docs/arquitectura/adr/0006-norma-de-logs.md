@@ -93,7 +93,21 @@ Se comprobó con mutaciones que las pruebas detectan: dejar de escapar el salto 
 | `catedra.rechazo_inesperado` | ERROR | La cátedra rechazó por un motivo que no debería ocurrir (se responde `502`) |
 | `atlas.llamada.fallida` / `.sin_respuesta` / `atlas.respuesta.ilegible` | WARN | Lo mismo para atlas (`accion=revisar_claves_jwt_de_atlas_y_cronos` si fue `401` o `403`) |
 
-Los eventos de Kafka (consumo, duplicado, estacionado, descartado, teléfono enviado) se agregan con el issue #15 y su catálogo se amplía acá.
+### Eventos al aplicar lo que informa la cátedra por Kafka (issue #15, paso 2)
+
+Llevan `id_evento` (el `eventId` de la cátedra), `tipo` (el `eventType`) y `proceso` (el `reservationProcessId`).
+
+| Evento | Nivel | Cuándo |
+|---|---|---|
+| `kafka.evento.aplicado` | INFO | El evento cambió el proceso: `estado_anterior` y `estado_nuevo` |
+| `kafka.evento.duplicado` | INFO | El mismo `eventId` ya estaba procesado (`accion=sin_efectos`) |
+| `kafka.evento.ignorado` | INFO / WARN | No corresponde al estado actual: INFO si el proceso ya terminó (llegó tarde), WARN si es una anomalía (`motivo`: `estado_final`, `estado_no_corresponde`, `hold_distinto`, `ya_confirmada`, `otra_reserva_confirmada`). Queda registrado como procesado |
+| `kafka.evento.proceso_desconocido` | WARN | Cronos no tiene ese proceso. No se marca: se reintenta o se estaciona |
+| `kafka.evento.estacionado` | WARN | Se guardó en `unmatched_event` (`accion=estacionado` o `ya_estaba_estacionado`) |
+| `kafka.evento.reintento` | INFO | Otro escritor cambió el proceso a la vez; se reintenta (hasta 3 intentos) |
+| `reserva.confirmacion.carrera` | INFO | El evento llegó entre la respuesta REST de la cátedra y el guardado del pedido: se relee el proceso y se reaplica o se devuelve el ya avanzado |
+
+Los eventos del consumidor en sí (arranque, mensaje ilegible, desconectado) y del teléfono enviado se agregan con los pasos 3 a 5.
 
 ## Alcance y límites
 
