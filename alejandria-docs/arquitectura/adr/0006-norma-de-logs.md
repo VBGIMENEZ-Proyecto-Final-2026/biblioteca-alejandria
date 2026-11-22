@@ -107,6 +107,19 @@ Llevan `id_evento` (el `eventId` de la cátedra), `tipo` (el `eventType`) y `pro
 | `kafka.evento.reintento` | INFO | Otro escritor cambió el proceso a la vez; se reintenta (hasta 3 intentos) |
 | `reserva.confirmacion.carrera` | INFO | El evento llegó entre la respuesta REST de la cátedra y el guardado del pedido: se relee el proceso y se reaplica o se devuelve el ya avanzado |
 
+### Eventos del teléfono (issue #15, paso 5)
+
+**Ninguno escribe el número, el `groupId` técnico, el nombre del topic ni los servidores.** Solo ids.
+
+| Evento | Nivel | Cuándo |
+|---|---|---|
+| `reserva.telefono.enviado` | INFO | Kafka confirmó el envío: `usuario`, `reserva`, `proceso`, `id_envio` (el `eventId` del mensaje) y `ms` |
+| `reserva.telefono.rechazado` | INFO | Cronos no lo manda: `motivo` (`no_existe_o_no_es_suya`, `la_catedra_todavia_no_lo_pidio`, `ya_no_lo_espera`, `vencida`, `ya_enviado_sin_respuesta`, `formato_invalido`). Nunca el valor recibido, ni su largo |
+| `reserva.telefono.no_enviado` | WARN | Kafka no confirmó a tiempo: `motivo` es el nombre de la clase de la causa. No se marcó nada; el usuario puede reintentar |
+| `reserva.telefono.enviado_sin_marca` | WARN | El mensaje salió pero no se pudo guardar cuándo (`accion=el_envio_salio_la_marca_no_se_guardo`): el pedido igual responde bien, para que el usuario no lo reenvíe |
+
+Cómo se evita que el número llegue a un log: `PhoneNumber`, `PhoneSubmission`, `SubmitPhoneCommand` y `PhoneRequest` tienen un `toString` que no lo imprime (con `TRACE`, Spring escribe los objetos que lee del cuerpo); el error de validación no se hace con anotaciones de Spring (que pueden repetir el valor rechazado) sino en el caso de uso, con mensajes fijos; y `NormaDeLogsTest` prohíbe pasar como valor nada que se llame `phone` o `telefono`. El productor de Kafka escribe el valor de cada registro a nivel `TRACE`: las librerías están en `ERROR`.
+
 ### Eventos del consumidor de Kafka (issue #15, paso 4)
 
 Mientras se procesa un mensaje, el lugar del `requestId` lo ocupa **`kafka-<partición>-<offset>`**: todas las líneas de ese mensaje lo llevan (incluidas las de `kafka.evento.*` de arriba). Los mensajes se identifican por partición y offset, **nunca por el nombre del topic** (contiene el `groupId` de la cuenta).

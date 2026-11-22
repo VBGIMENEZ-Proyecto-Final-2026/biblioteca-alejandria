@@ -1,6 +1,6 @@
 # Modelo de datos de cronos-turnos (usuarios y reservas)
 
-**Estado:** usuarios en la migración `V1__usuarios.sql` (2026-11-19, issue #7), procesos de reserva en `V2__reservas.sql` (2026-11-21, issue #11) y los datos de los eventos de la cátedra en `V3__eventos_de_reserva.sql` (2026-11-22, issue #15: estados corregidos, `processed_event` y `unmatched_event`).
+**Estado:** usuarios en la migración `V1__usuarios.sql` (2026-11-19, issue #7), procesos de reserva en `V2__reservas.sql` (2026-11-21, issue #11) los datos de los eventos de la cátedra en `V3__eventos_de_reserva.sql` (2026-11-22, issue #15: estados corregidos, `processed_event` y `unmatched_event`) y cuándo se mandó el teléfono en `V4__telefono_enviado.sql` (2026-11-22).
 
 ## Alcance y propiedad
 
@@ -52,6 +52,7 @@ Un proceso de reserva de un usuario: el turno que pidió, cómo lo conoce la cá
 | `request_event_id` | `varchar(200)` | **(V3)** El `eventId` del último `AdditionalInformationRequested`: se manda como `requestEventId` al responder el teléfono. `NULL` hasta que llega. |
 | `last_rejection_reason` | `varchar(60)` | **(V3)** El código del último `AdditionalInformationRejected`. Un rechazo no termina el proceso. |
 | `catedra_reservation_id` | `bigint` | **(V3)** El id de la reserva confirmada en la cátedra (`AppointmentConfirmed`). `UNIQUE`. |
+| `phone_submitted_at` | `timestamptz` | **(V4)** Cuándo se mandó el teléfono a la cátedra. `NULL` si todavía no, o si la cátedra rechazó el teléfono o pidió otro (se puede mandar otro). **Es lo único que se guarda del teléfono: el número no se guarda en ninguna tabla.** |
 | `version` | `bigint` | Bloqueo optimista: dos escrituras simultáneas sobre el mismo proceso no se pisan. |
 | `created_at`, `updated_at` | `timestamptz` | |
 
@@ -102,6 +103,7 @@ Los eventos cuyo proceso no existe en esta base (se borró, o son de otra corrid
 
 ## Decisiones
 
+- **El número de teléfono no se guarda** (decisión D3 del plan de Kafka): es un dato personal, se manda a la cátedra por Kafka y se descarta; quien lo conserva es la cátedra. Una prueba (`ningunaTablaTieneUnaColumnaDondeGuardarElNumeroDeTelefono`) falla si alguna tabla gana una columna con `phone`, `telefono`, `celular` o `mobile` en el nombre, y obliga a volver a decidirlo.
 - **Los motivos que informa la cátedra solo se guardan como códigos estables** (`[A-Z][A-Z0-9_]{0,59}`); cualquier otra cosa se guarda como `OTHER`. Así ni `failure_code` ni `last_rejection_reason` pueden contener un texto libre o un dato personal.
 - **Se guarda el proceso antes de cada paso con efectos.** `STARTING` queda registrado antes de pedir el hold: si cronos se corta, el rastro existe (la recuperación al reiniciar es el issue #13).
 - **La propiedad por usuario vive en esta tabla**, no en la cátedra: la cátedra solo conoce la cuenta técnica del proyecto y a cada paciente como `user-<id>`, un identificador opaco que no revela el login (enunciado 4.2 y 9).
