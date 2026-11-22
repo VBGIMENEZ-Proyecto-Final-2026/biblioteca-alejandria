@@ -107,12 +107,26 @@ Llevan `id_evento` (el `eventId` de la cátedra), `tipo` (el `eventType`) y `pro
 | `kafka.evento.reintento` | INFO | Otro escritor cambió el proceso a la vez; se reintenta (hasta 3 intentos) |
 | `reserva.confirmacion.carrera` | INFO | El evento llegó entre la respuesta REST de la cátedra y el guardado del pedido: se relee el proceso y se reaplica o se devuelve el ya avanzado |
 
-Los eventos del consumidor en sí (arranque, mensaje ilegible, desconectado) y del teléfono enviado se agregan con los pasos 3 a 5.
+### Eventos del consumidor de Kafka (issue #15, paso 4)
+
+Mientras se procesa un mensaje, el lugar del `requestId` lo ocupa **`kafka-<partición>-<offset>`**: todas las líneas de ese mensaje lo llevan (incluidas las de `kafka.evento.*` de arriba). Los mensajes se identifican por partición y offset, **nunca por el nombre del topic** (contiene el `groupId` de la cuenta).
+
+| Evento | Nivel | Cuándo |
+|---|---|---|
+| `kafka.mensaje.ilegible` | WARN | El mensaje no se entiende: `motivo` (`json_ilegible`, `falta_campo`, `campo_invalido`, `schema_no_soportado`, `mensaje_vacio`...) y `campo`. **Sin el contenido.** Se descarta y se confirma el offset |
+| `kafka.mensaje.saltado` | INFO | Un tipo de evento que cronos no usa (`tipo`); se ignora y se confirma |
+| `kafka.mensaje.reintento` | WARN | **Una línea por cada reintento**: `tipo_de_falla` (`proceso_desconocido`, `infraestructura_sin_respuesta`, `el_mensaje_falla`), `motivo` y `causa_raiz` (nombres de clase, nunca el mensaje), `intento` y `espera_ms` |
+| `kafka.mensaje.agotado` | WARN / ERROR | Se acabaron los intentos: se estaciona y se confirma el offset. WARN si el proceso no existía (`UNKNOWN_PROCESS`); ERROR si el mensaje falla por sí mismo (`PROCESSING_FAILED`, con `excepcion` y `causa_raiz`, sin traza) |
+| `kafka.consumidor.iniciado` / `.detenido` | INFO | El contenedor arrancó / se detuvo |
+| `kafka.consumidor.no_inicia` | WARN | No se pudo construir el cliente (la red de la cátedra caída): `motivo` es el nombre de la clase, **sin el mensaje** (trae la dirección de los servidores); `reintento_en`. Cronos sigue atendiendo pedidos |
+| `kafka.consumidor.particiones_asignadas` / `.revocadas` | INFO | `cantidad`. Reemplaza al log de la librería, que escribe el grupo y el topic |
+
+**Qué se hizo para que no se filtre el `groupId`:** las librerías de Kafka y de Spring Kafka escriben en `INFO` el nombre del grupo, el del topic y los servidores, así que `org.apache.kafka` y `org.springframework.kafka` quedan en `WARN` (`application.yaml`); se fija un `client.id` propio (`cronos-eventos-de-reserva`), porque el que arma el cliente lleva el nombre del grupo y aparece en sus logs, sus métricas y los del broker; y nunca se escribe el mensaje de una excepción de base de datos, que puede traer la fila con los nombres del paciente (solo el nombre de la clase). `NormaDeLogsTest` prohíbe además pasar como valor nada que se llame `topic`, `bootstrap` o `consumerGroup`.
 
 ## Alcance y límites
 
-- **Cronos:** aplicado. 353 pruebas, 0 fallas.
-- **Atlas-catalogo:** **no aplicado todavía.** Tiene 14 clases con logger, 30 llamadas y 3 clases de prueba que miran logs. Se migra en un PR aparte (norma, `LogEvent`, `requestId` y eventos de sincronización), para no tocar un servicio casi cerrado antes de la entrega. Hasta entonces los logs de atlas siguen en prosa y esta norma rige solo para cronos.
+- **Cronos:** aplicado. 488 pruebas, 0 fallas (con los eventos de Kafka).
+- **Atlas-catalogo:** **no aplicado todavía.** Tiene 14 clases con logger, 30 llamadas y 3 clases de prueba que miran logs. Se migra en un PR aparte (norma, `LogEvent`, `requestId` y eventos de sincronización), para no tocar un servicio casi cerrado antes de la entrega. Hasta entonces los logs de atlas siguen en prosa y esta norma rige solo para cronos. **Al migrarlo hay que corregir una fuga que se vio al escribir el consumidor de cronos:** atlas escribe `record.topic()` en sus logs de Kafka (el nombre del topic del catálogo contiene el `groupId` de la cuenta), y el motivo de un fallo de arranque del consumidor (`rootMessage`) puede traer la dirección de los servidores de la cátedra. Además tiene el mismo `client.id` por defecto, que lleva el grupo.
 - **Un token o un nombre en TRACE de librerías.** Con `TRACE` en `org.hibernate` o `org.postgresql`, o `DEBUG` en Spring, las librerías pueden escribir valores enlazados al SQL o partes del pedido. La norma controla **lo que escribe cronos**, no lo que escriben las librerías: es un límite conocido y esos niveles no se activan fuera del desarrollo.
 - **Los valores de los eventos no se filtran por contenido.** `NormaDeLogsTest` mira los **nombres** que se pasan (`password`, `token`, …), no el contenido de una variable llamada de otra forma. Por eso hay además pruebas de flujo que buscan secretos y nombres reales en lo escrito.
 - **Sin JSON.** Se eligió `clave=valor` por legibilidad en consola y en una defensa oral. Spring Boot 4 trae logging estructurado (JSON); si hiciera falta mandar los logs a un agregador, los pares se pueden pasar a campos sin cambiar los códigos de evento.
