@@ -149,10 +149,11 @@ Respuesta `202 Accepted` (el proceso sigue):
   "professionalFirstName": "Romina", "professionalLastName": "Acosta",
   "date": "2026-12-15", "startTime": "14:30:00", "endTime": "15:00:00",
   "patientFirstName": "Juan", "patientLastName": "Pérez",
-  "expiresAt": "2026-12-15T14:44:50Z", "phoneSubmitted": false, "createdAt": "2026-11-21T16:43:08.189582Z" }
+  "expiresAt": "2026-12-15T14:44:50Z", "phoneSubmitted": false, "lastRejectionReason": null, "failureCode": null,
+  "createdAt": "2026-11-21T16:43:08.189582Z", "updatedAt": "2026-11-21T16:43:08.512004Z" }
 ```
 
-`phoneSubmitted` dice si ya se mandó el teléfono a la cátedra (el número no se guarda ni se devuelve). El `id` es el de cronos. La respuesta **no expone** el `holdId` ni el `reservationProcessId` de la cátedra ni el usuario.
+`phoneSubmitted` dice si ya se mandó el teléfono a la cátedra (el número no se guarda ni se devuelve). `lastRejectionReason` es el código con que la cátedra rechazó el último teléfono (por ejemplo `INVALID_PHONE_NUMBER`): el proceso **sigue esperando** y se puede mandar otro. `failureCode` es el motivo de un proceso que terminó mal (`FAILED` o `INVALID`). **Los dos son códigos estables, nunca un texto de la cátedra**: el usuario necesita saber por qué falló su reserva o por qué se rechazó su teléfono. El `id` es el de cronos. La respuesta **no expone** el `holdId` ni el `reservationProcessId` de la cátedra ni el usuario.
 
 ### 6.1 Cómo se evita perder o duplicar
 
@@ -192,9 +193,32 @@ Respuesta `202 Accepted`: el proceso sigue esperando. **El resultado (confirmada
 
 **Si la cátedra rechaza el teléfono** (`AdditionalInformationRejected`) el proceso **sigue** en `WAITING_FOR_PHONE` hasta su `expiresAt` (referencia 15.7) y se puede mandar otro.
 
-### 6.3 Límites
+### 6.3 Mis reservas: `GET /api/reservations` y `GET /api/reservations/{id}`
 
-- Todavía no hay listado, consulta ni cancelación de reservas (issue #12). Los resultados de la cátedra los aplica el consumidor de Kafka (issue #15); si cronos no estuvo escuchando, un proceso queda en `WAITING_FOR_PHONE` aunque la cátedra lo haya dado por vencido, hasta que se recupere al reiniciar (#13) o el usuario vuelva a pedir ese turno (se cierra como `EXPIRED`).
+Requieren `Authorization: Bearer <jwt>` con `ROLE_USER` o `ROLE_ADMIN`. Es el requisito 13 del enunciado (consultar las propias reservas) y lo que permite ver el resultado final de una reserva.
+
+- **`GET /api/reservations/{id}`**: una reserva propia, con la misma forma que la respuesta de 6. Para cualquier otro usuario y para un id que no existe, **el mismo `404 RESERVATION_NOT_FOUND`** (no se revela que existe la de otro). Un `{id}` que no es un número da `400 VALIDATION_ERROR`.
+- **`GET /api/reservations`**: mis reservas, **la más reciente primero** (por fecha de creación y, a igual fecha, por id). Parámetros opcionales:
+
+| Parámetro | Regla |
+|---|---|
+| `status` | Uno de `STARTING`, `HELD`, `WAITING_FOR_PHONE`, `CONFIRMED`, `EXPIRED`, `INVALID`, `CANCELLED`, `FAILED`. Cualquier otro valor da `400` |
+| `page` | Desde 0 (0 por defecto). Negativo o mayor que 1.000.000, `400` |
+| `size` | De 1 a 100 (20 por defecto). Fuera de rango, `400` |
+
+```json
+{ "items": [ { "id": 6, "status": "CONFIRMED", ... } ], "page": 0, "size": 20, "totalItems": 1, "totalPages": 1 }
+```
+
+Una página más allá del final es una lista vacía que conserva `totalItems`. Un parámetro inválido da `400 VALIDATION_ERROR` con `fieldErrors` que **nombra el parámetro y no repite el valor**.
+
+**Sin acceso cruzado.** El dueño es siempre el del token: ninguna ruta ni parámetro permite pedir las reservas de otro (se ignoran `userId`, `login` y similares). Un `ROLE_ADMIN` también ve solo las suyas hasta que exista el usuario administrador (issue #14).
+
+**Solo lee la base de cronos**: no llama a la cátedra ni a atlas, así que responde aunque estén caídos (enunciado 8: seguir atendiendo lo que depende solo de datos propios). El estado es el último que cronos conoce: el resultado final llega por Kafka y puede demorar. Las rutas `PUT`, `PATCH` y `DELETE` sobre una reserva no existen (`403`).
+
+### 6.4 Límites
+
+- Todavía no hay cancelación de reservas (issue #12). Los resultados de la cátedra los aplica el consumidor de Kafka (issue #15); si cronos no estuvo escuchando, un proceso queda en `WAITING_FOR_PHONE` aunque la cátedra lo haya dado por vencido, hasta que se recupere al reiniciar (#13) o el usuario vuelva a pedir ese turno (se cierra como `EXPIRED`).
 - Un proceso en `STARTING` o un hold huérfano se resuelven con la recuperación al reiniciar (issue #13); hasta entonces el pedido repetido recibe `409 RESERVATION_IN_PROGRESS`.
 
 ## 7. Errores
@@ -222,7 +246,8 @@ Respuesta `202 Accepted`: el proceso sigue esperando. **El resultado (confirmada
 | Reservas: el hold venció antes de confirmarse | 409 | `HOLD_EXPIRED` |
 | Reservas: el mismo pedido se está procesando ahora | 409 | `RESERVATION_IN_PROGRESS` |
 | Reservas: la cátedra rechazó por un motivo que no debería ocurrir | 502 | `CATEDRA_ERROR` (sin detalle) |
-| Teléfono: la reserva no existe o es de otro usuario | 404 | `RESERVATION_NOT_FOUND` (el mismo cuerpo para las dos) |
+| Consulta y teléfono: la reserva no existe o es de otro usuario | 404 | `RESERVATION_NOT_FOUND` (el mismo cuerpo para las dos) |
+| Consulta: `status`, `page` o `size` fuera de rango o con otro formato | 400 | `VALIDATION_ERROR` (nombra el parámetro, no repite el valor) |
 | Teléfono: formato inválido o falta | 400 | `INVALID_PHONE_NUMBER` (no repite el valor) |
 | Teléfono: la cátedra todavía no lo pidió | 409 | `PHONE_NOT_REQUESTED` |
 | Teléfono: la reserva ya no espera un teléfono | 409 | `RESERVATION_NOT_AWAITING_PHONE` |
@@ -238,6 +263,6 @@ Los vocabularios `VALIDATION_ERROR`, `USERNAME_ALREADY_EXISTS`, `EMAIL_ALREADY_E
 ## 8. Lo que todavía no está
 
 - Cierre del issue #33 de atlas: la prueba cruzada ya se hizo (un token real de cronos fue aceptado por atlas, [evidencia](../evidencias/isla-2-prueba-cruzada.md)) y falta que el alumno lo cierre.
-- Consulta y cancelación de reservas propias (la consulta del estado, `GET /api/reservations/{id}`, es el paso 6), recuperación al reiniciar y la corrida real contra la cátedra.
+- Cancelación de reservas propias (issue #12), recuperación al reiniciar (issue #13) y la corrida real contra la cátedra.
 - Un usuario administrador (`ROLE_ADMIN`): el registro solo crea `ROLE_USER`.
 - Recuperación de contraseña, edición del perfil, límite de intentos de login y revocación de tokens.
