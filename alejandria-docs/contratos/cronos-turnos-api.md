@@ -216,9 +216,39 @@ Una página más allá del final es una lista vacía que conserva `totalItems`. 
 
 **Solo lee la base de cronos**: no llama a la cátedra ni a atlas, así que responde aunque estén caídos (enunciado 8: seguir atendiendo lo que depende solo de datos propios). El estado es el último que cronos conoce: el resultado final llega por Kafka y puede demorar. Las rutas `PUT`, `PATCH` y `DELETE` sobre una reserva no existen (`403`).
 
-### 6.4 Límites
+### 6.4 Cancelar una reserva: `POST /api/reservations/{id}/cancel`
 
-- Todavía no hay cancelación de reservas (issue #12). Los resultados de la cátedra los aplica el consumidor de Kafka (issue #15); si cronos no estuvo escuchando, un proceso queda en `WAITING_FOR_PHONE` aunque la cátedra lo haya dado por vencido, hasta que se recupere al reiniciar (#13) o el usuario vuelva a pedir ese turno (se cierra como `EXPIRED`).
+Requiere `Authorization: Bearer <jwt>` con `ROLE_USER` o `ROLE_ADMIN`. Es el requisito 14 del enunciado (cancelar una reserva propia confirmada). El cuerpo es opcional:
+
+```json
+{ "reason": "Cambio de planes" }
+```
+
+`reason` admite hasta **500 caracteres** (referencia 12). **Es texto libre del usuario: se manda a la cátedra y cronos no lo guarda ni lo registra.** Un motivo más largo da `400 VALIDATION_ERROR` con `fieldErrors` que nombra `reason` y no repite lo escrito; un motivo vacío o en blanco se trata como si no hubiera.
+
+Respuesta `200 OK` con la reserva ya cancelada (misma forma que en 6, con `status: "CANCELLED"`).
+
+| Condición | Resultado |
+|---|---|
+| La reserva existe y es del usuario del token | `404 RESERVATION_NOT_FOUND`, igual para una inexistente que para la de otro usuario |
+| Está `CANCELLED` | `200` con la reserva tal cual, **sin llamar a la cátedra** (cancelar es idempotente, como en la cátedra) |
+| Está `CONFIRMED` | Se cancela |
+| Está en cualquier otro estado | `409 RESERVATION_NOT_CANCELLABLE` (solo se cancela una reserva confirmada) |
+| La cátedra dice que no se puede (`RESERVATION_NOT_CANCELLABLE`) | `409 RESERVATION_NOT_CANCELLABLE`; el estado local no cambia ni se reintenta |
+| La cátedra no la conoce o dice que es de otra cuenta (`RESERVATION_NOT_FOUND`, `RESERVATION_OWNER_MISMATCH`) | `502 CATEDRA_ERROR`: cronos la tiene confirmada, así que no debería pasar |
+| La cátedra no responde o falla (timeout, 5xx, credencial) | Se repite **una vez**; si sigue sin saberse, `503 CATEDRA_UNAVAILABLE` |
+
+**Qué hace cronos:** llama a `POST /api/appointments/{reservationProcessId}/cancel` de la cátedra (referencia 12) y, **con su respuesta REST**, deja la reserva `CANCELLED` enseguida, sin esperar el evento de Kafka. El `AppointmentCancelled` que la cátedra publica después encuentra un estado final y no cambia nada (un estado final no retrocede); si el consumidor lo había aplicado a la vez, el pedido devuelve el proceso como quedó.
+
+**Si no se sabe qué pasó.** Un timeout no prueba que la operación haya fallado (referencia 18.4: reconciliar antes de repetir una acción con efectos). Como **la cancelación de la cátedra es idempotente** (cancelar una reserva ya cancelada devuelve su estado actual), repetirla es seguro: se repite una sola vez y, si sigue sin saberse, se responde `503` y la reserva queda confirmada localmente. Repetir el pedido es seguro; y si la cátedra sí la canceló, el evento `AppointmentCancelled` la actualiza por Kafka. Un rechazo (409, 403, 404) nunca se reintenta. No hay reintentos ilimitados.
+
+**Si la base falla después de que la cátedra canceló**, el error sube (`503 SERVICE_UNAVAILABLE`) y repetir el pedido es seguro por la misma razón. No hay una columna de "cancelación pedida": la idempotencia de la cátedra y el evento alcanzan para converger.
+
+**Sin acceso cruzado:** solo el dueño; para cualquier otro la reserva no existe y la cátedra no se entera.
+
+### 6.5 Límites
+
+- Los resultados de la cátedra los aplica el consumidor de Kafka (issue #15); si cronos no estuvo escuchando, un proceso queda en `WAITING_FOR_PHONE` aunque la cátedra lo haya dado por vencido, hasta que se recupere al reiniciar (#13) o el usuario vuelva a pedir ese turno (se cierra como `EXPIRED`).
 - Un proceso en `STARTING` o un hold huérfano se resuelven con la recuperación al reiniciar (issue #13); hasta entonces el pedido repetido recibe `409 RESERVATION_IN_PROGRESS`.
 
 ## 7. Errores
@@ -246,7 +276,9 @@ Una página más allá del final es una lista vacía que conserva `totalItems`. 
 | Reservas: el hold venció antes de confirmarse | 409 | `HOLD_EXPIRED` |
 | Reservas: el mismo pedido se está procesando ahora | 409 | `RESERVATION_IN_PROGRESS` |
 | Reservas: la cátedra rechazó por un motivo que no debería ocurrir | 502 | `CATEDRA_ERROR` (sin detalle) |
-| Consulta y teléfono: la reserva no existe o es de otro usuario | 404 | `RESERVATION_NOT_FOUND` (el mismo cuerpo para las dos) |
+| Consulta, teléfono y cancelación: la reserva no existe o es de otro usuario | 404 | `RESERVATION_NOT_FOUND` (el mismo cuerpo para las dos) |
+| Cancelación: la reserva no está confirmada (o la cátedra dice que no se puede) | 409 | `RESERVATION_NOT_CANCELLABLE` |
+| Cancelación: el motivo pasa los 500 caracteres | 400 | `VALIDATION_ERROR` (nombra `reason`, no repite el texto) |
 | Consulta: `status`, `page` o `size` fuera de rango o con otro formato | 400 | `VALIDATION_ERROR` (nombra el parámetro, no repite el valor) |
 | Teléfono: formato inválido o falta | 400 | `INVALID_PHONE_NUMBER` (no repite el valor) |
 | Teléfono: la cátedra todavía no lo pidió | 409 | `PHONE_NOT_REQUESTED` |
@@ -263,6 +295,6 @@ Los vocabularios `VALIDATION_ERROR`, `USERNAME_ALREADY_EXISTS`, `EMAIL_ALREADY_E
 ## 8. Lo que todavía no está
 
 - Cierre del issue #33 de atlas: la prueba cruzada ya se hizo (un token real de cronos fue aceptado por atlas, [evidencia](../evidencias/isla-2-prueba-cruzada.md)) y falta que el alumno lo cierre.
-- Cancelación de reservas propias (issue #12), recuperación al reiniciar (issue #13) y la corrida real contra la cátedra.
+- Recuperación al reiniciar (issue #13) y la corrida real contra la cátedra.
 - Un usuario administrador (`ROLE_ADMIN`): el registro solo crea `ROLE_USER`.
 - Recuperación de contraseña, edición del perfil, límite de intentos de login y revocación de tokens.

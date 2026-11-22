@@ -107,6 +107,22 @@ Llevan `id_evento` (el `eventId` de la cátedra), `tipo` (el `eventType`) y `pro
 | `kafka.evento.reintento` | INFO | Otro escritor cambió el proceso a la vez; se reintenta (hasta 3 intentos) |
 | `reserva.confirmacion.carrera` | INFO | El evento llegó entre la respuesta REST de la cátedra y el guardado del pedido: se relee el proceso y se reaplica o se devuelve el ya avanzado |
 
+### Eventos de la cancelación (issue #12)
+
+**Ninguno escribe el motivo que escribió el usuario** (texto libre, hasta 500 caracteres): se manda a la cátedra y se descarta.
+
+| Evento | Nivel | Cuándo |
+|---|---|---|
+| `reserva.cancelacion.confirmada` | INFO | La cátedra canceló y la reserva quedó `CANCELLED`: `usuario`, `reserva`, `proceso`, `estado` y `ms` |
+| `reserva.cancelacion.ya_cancelada` | INFO | Se pidió cancelar una ya cancelada: se devuelve tal cual, sin llamar a la cátedra |
+| `reserva.cancelacion.denegada` | INFO | Cronos no la manda a la cátedra: `motivo` (`no_existe_o_no_es_suya`, `no_esta_confirmada`, `motivo_demasiado_largo`) |
+| `reserva.cancelacion.rechazada` | INFO | La cátedra rechazó: `motivo` es el código de la cátedra; `accion=el_estado_local_no_cambia`. No se reintenta |
+| `reserva.cancelacion.reconciliando` | INFO | No se supo qué pasó: se repite una vez (`intento=2`) |
+| `reserva.cancelacion.incierta` | WARN | Sigue sin saberse tras la reconciliación: la reserva sigue confirmada y repetir el pedido es seguro |
+| `reserva.cancelacion.carrera` | INFO | El consumidor cambió el proceso a la vez: se reaplica o se devuelve el ya avanzado |
+
+El motivo tampoco llega al log por otro camino: `CancelRequest` y el cuerpo del cliente HTTP tienen un `toString` que no lo imprime (con `TRACE`, Spring escribe los objetos que lee y que serializa), y el largo se valida en el caso de uso y no con anotaciones de Spring (que pueden repetir el valor rechazado).
+
 ### Eventos del teléfono (issue #15, paso 5)
 
 **Ninguno escribe el número, el `groupId` técnico, el nombre del topic ni los servidores.** Solo ids.
