@@ -60,14 +60,17 @@ Cada repo de código tiene en su README un diagrama más cercano a su responsabi
 
 | Documento | Qué cuenta |
 | --- | --- |
-| [`modelo-datos/cronos-turnos.md`](modelo-datos/cronos-turnos.md) | Tablas de usuarios y autoridades, y sus decisiones |
-| [`contratos/cronos-turnos-api.md`](contratos/cronos-turnos-api.md) | Contrato con `hermes-app`: registro, login, token, cuenta propia, disponibilidad y errores (parcial) |
+| [`arquitectura/arquitectura-general.md`](arquitectura/arquitectura-general.md) | **Diagrama de arquitectura** (app, dos servicios, bases e integraciones con la cátedra), secuencia de una reserva y máquina de estados |
+| [`arquitectura/idempotencia-y-recuperacion-cronos.md`](arquitectura/idempotencia-y-recuperacion-cronos.md) | **Procesamiento idempotente y recuperación** ante mensajes duplicados, perdidos o fuera de orden, timeouts, vencimiento y reinicio |
+| [`modelo-datos/cronos-turnos.md`](modelo-datos/cronos-turnos.md) | Tablas de usuarios, reservas, eventos procesados y estacionados, y sus decisiones |
+| [`contratos/cronos-turnos-api.md`](contratos/cronos-turnos-api.md) | Contrato con `hermes-app`: registro, login, token, cuenta propia, disponibilidad, reservas, teléfono, consulta, cancelación y errores |
 | [`implementacion/cronos-turnos.md`](implementacion/cronos-turnos.md) | Evolución del código, decisiones al implementar y lo que encontraron las pruebas |
 | [`arquitectura/adr/0005-usuarios-y-jwt-en-cronos-sin-jhipster.md`](arquitectura/adr/0005-usuarios-y-jwt-en-cronos-sin-jhipster.md) | Por qué los usuarios van con Spring Security y sin JHipster |
 | [`evidencias/isla-2-usuarios-jwt.md`](evidencias/isla-2-usuarios-jwt.md) | Registro y login probados con la aplicación real |
 | [`evidencias/isla-2-prueba-cruzada.md`](evidencias/isla-2-prueba-cruzada.md) | Un token de cronos aceptado por atlas y los tokens malos rechazados en los dos (26 de 26) |
 | [`evidencias/isla-2-disponibilidad.md`](evidencias/isla-2-disponibilidad.md) | Disponibilidad de turnos con atlas real y cátedra simulada; la cátedra real queda pendiente |
 | [`evidencias/isla-2-holds.md`](evidencias/isla-2-holds.md) | Holds contra la cátedra real: crear, repetir, turno tomado, vencimiento solo y los dos defectos que encontró |
+| [`evidencias/isla-2-corrida-real-kafka.md`](evidencias/isla-2-corrida-real-kafka.md) | Corrida real de punta a punta: reserva confirmada por Kafka, cancelación, vencimiento, duplicado real y reinicio con un pendiente |
 
 ## Convenciones
 
