@@ -107,6 +107,24 @@ Llevan `id_evento` (el `eventId` de la cátedra), `tipo` (el `eventType`) y `pro
 | `kafka.evento.reintento` | INFO | Otro escritor cambió el proceso a la vez; se reintenta (hasta 3 intentos) |
 | `reserva.confirmacion.carrera` | INFO | El evento llegó entre la respuesta REST de la cátedra y el guardado del pedido: se relee el proceso y se reaplica o se devuelve el ya avanzado |
 
+### Eventos de la recuperación y el vencimiento (issue #13)
+
+Los emite la tarea que corre al arrancar y cada 30 s (`RecoveryScheduler`); no llevan `usuario` (no hay un pedido) y ninguno lleva datos del paciente.
+
+| Evento | Nivel | Cuándo |
+|---|---|---|
+| `reserva.recuperacion.iniciada` / `.detenida` | INFO | Arranca / se detiene la tarea (`cada`: el intervalo) |
+| `reserva.proceso.vencido_por_barrido` | WARN | Un proceso con hold pasó su `expiresAt` (más la gracia) sin que llegara el evento: se cerró como `EXPIRED` (`estado_anterior`, `vencio`) |
+| `reserva.recuperacion.sin_hold` | WARN | Un `STARTING` abandonado pasó a `FAILED` (`motivo=INTERRUPTED_BEFORE_HOLD`); el hold, si existe, vence solo |
+| `reserva.recuperacion.reconciliado` | INFO | Un `HELD` abandonado se confirmó de nuevo con la cátedra (`estado` resultante) |
+| `reserva.recuperacion.cerrado_por_la_catedra` | INFO | Al reconciliar, la cátedra dijo que el hold ya no existe o lo rechazó: el proceso quedó cerrado (`motivo`) |
+| `reserva.recuperacion.catedra_no_responde` | WARN | No se supo qué pasó con la confirmación: se **corta la pasada** y el proceso sigue en `HELD` (`pendientes`: cuántos quedaron) |
+| `reserva.recuperacion.carrera` | INFO / WARN | Otro escritor (el consumidor de Kafka, un pedido) cambió el proceso a la vez: se decide con lo que quedó (`paso`, `accion`) |
+| `reserva.recuperacion.error` | ERROR | Falla inesperada (la base al buscar, un proceso que falla): se registra con traza, se sigue con el siguiente y se reintenta en la próxima pasada |
+| `reserva.recuperacion.pasada` | INFO | Resumen de una pasada que hizo algo o dejó procesos en `HELD`: `vencidos`, `interrumpidos`, `reconciliados`, `cerrados_por_la_catedra`, `siguen_en_HELD`, `catedra_caida` |
+
+Cada confirmación que se repite además escribe los eventos normales de `StartReservation` (`reserva.confirmacion.reconciliando`, `.incierta`, `.ya_aplicada`, `reserva.hold.confirmado`).
+
 ### Eventos de la cancelación (issue #12)
 
 **Ninguno escribe el motivo que escribió el usuario** (texto libre, hasta 500 caracteres): se manda a la cátedra y se descarta.
